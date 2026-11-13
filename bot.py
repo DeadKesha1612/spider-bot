@@ -107,15 +107,16 @@ def view_category_item(call):
     
     # Если в категории нет товаров
     if not cat_items:
-        text = f"📁 Категория: *{CATEGORIES.get(cat_key, 'Товары')}*\n\nВ этой категории пока пусто."
+        text = f"📁 Категория: *{CATEGORIES.get(cat_key, 'Товары')}*\n\nВ этой категории пока нет товаров."
         
-        # Кнопки навигации (даже если пусто) + админская кнопка
+        # Кнопки навигации Назад / Вперед
         nav_buttons = [
             telebot.types.InlineKeyboardButton("⬅️ Назад", callback_data=f"cat_{cat_key}_0"),
             telebot.types.InlineKeyboardButton("Вперед ➡️", callback_data=f"cat_{cat_key}_0")
         ]
         markup.row(*nav_buttons)
         
+        # Админская кнопка добавления товара
         if is_admin:
             markup.add(telebot.types.InlineKeyboardButton("➕ Добавить товар", callback_data=f"admin_add_{cat_key}"))
             
@@ -144,14 +145,14 @@ def view_category_item(call):
     # 1. Корзина
     markup.add(telebot.types.InlineKeyboardButton("🛒 Добавить в корзину", callback_data=f"cart_add_{item_id}"))
     
-    # 2. Кнопки Назад / Вперед (сверху над админскими кнопками)
+    # 2. Кнопки Назад / Вперед
     nav_buttons = [
         telebot.types.InlineKeyboardButton("⬅️ Назад", callback_data=f"cat_{cat_key}_{index - 1}"),
         telebot.types.InlineKeyboardButton("Вперед ➡️", callback_data=f"cat_{cat_key}_{index + 1}")
     ]
     markup.row(*nav_buttons)
     
-    # 3. Админские кнопки (видны только тебе)
+    # 3. Админские кнопки (Добавить, Редактировать, Удалить)
     if is_admin:
         markup.add(telebot.types.InlineKeyboardButton("➕ Добавить товар", callback_data=f"admin_add_{cat_key}"))
         markup.add(
