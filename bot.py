@@ -1,51 +1,47 @@
-import os
-import asyncio
-import logging
-from aiogram import Bot, Dispatcher, types
-from aiogram.filters import Command
-from aiogram.utils.keyboard import InlineKeyboardBuilder
-from aiohttp import web
+import telebot
+import json
 
+# Токен твоего бота «Храм Паука»
 TOKEN = "9037922529:AAFXbac00LXXVDpMaX2zK9ua2HKpQvWxCko"
-ADMIN_ID = 5393257255
-WEB_APP_URL = "https://polite-cupcake-6a47ca.netlify.app/"
+bot = telebot.TeleBot(TOKEN)
 
-logging.basicConfig(level=logging.INFO)
 
-bot = Bot(token=TOKEN)
-dp = Dispatcher()
-
-@dp.message(Command("start"))
-async def cmd_start(message: types.Message):
-    builder = InlineKeyboardBuilder()
-    builder.add(types.InlineKeyboardButton(
-        text="🛍 Открыть каталог «Храм Паука»",
-        web_app=types.WebAppInfo(url=WEB_APP_URL)
-    ))
-    await message.answer(
-        "Приветствую! Добро пожаловать в мастерскую **Храм Паука**.\n\n"
-        "Нажми кнопку ниже, чтобы выбрать кастомные бусины, темляки, браслеты или сделать индивидуальный заказ:",
-        reply_markup=builder.as_markup(),
-        parse_mode="Markdown"
+@bot.message_handler(commands=['start'])
+def send_welcome(message):
+    bot.send_message(
+        message.chat.id, 
+        "Привет! Добро пожаловать в «Храм Паука». Используй меню, чтобы открыть каталог."
     )
 
-async def handle(request):
-    return web.Response(text="Spider Bot is running 24/7!")
 
-app = web.Application()
-app.router.add_get("/", handle)
+# --- Обработчик заказов из мини-приложения ---
+@bot.message_handler(content_types=['web_app_data'])
+def handle_web_app_data(message):
+    try:
+        # Парсим JSON-строку с товарами, которую прислал каталог
+        cart_items = json.loads(message.web_app_data.data)
+        
+        if not cart_items:
+            bot.send_message(message.chat.id, "Корзина пуста!")
+            return
 
-async def main():
-    polling_task = asyncio.create_task(dp.start_polling(bot))
-    
-    runner = web.AppRunner(app)
-    await runner.setup()
-    port = int(os.environ.get("PORT", 10000))
-    site = web.TCPSite(runner, "0.0.0.0", port)
-    await site.start()
-    logging.info(f"Web server started on port {port}")
-    
-    await polling_task
+        # Формируем текст заказа
+        order_text = "🛒 **Новый заказ из каталога Храм Паука:**\n\n"
+        total = 0
+        
+        for item in cart_items:
+            order_text += f"• {item['name']} — {item['price']} ₽\n"
+            total += item['price']
+            
+        order_text += f"\n💰 **Итого к оплате:** {total} ₽"
+        
+        # Отправляем оформленный заказ тебе в чат
+        bot.send_message(message.chat.id, order_text, parse_mode="Markdown")
+        
+    except Exception as e:
+        bot.send_message(message.chat.id, "Ошибка при обработке заказа.")
 
-if __name__ == "__main__":
-    asyncio.run(main())
+
+# Запуск бота
+if __name__ == '__main__':
+    bot.infinity_polling()
