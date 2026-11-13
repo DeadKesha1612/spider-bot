@@ -1,16 +1,30 @@
 import telebot
 import json
 import os
-from flask import Flask
+from flask import Flask, request
 
 TOKEN = "9037922529:AAGajC8OlDJCkagMVBEV0qGSivuDRDdYxyk"
 bot = telebot.TeleBot(TOKEN)
 
 app = Flask(__name__)
 
+# URL твоего сайта на Render (автоматически подставится или пропишется)
+WEBHOOK_URL = f"https://thespidertemplebot.onrender.com/{TOKEN}"
+
 @app.route('/')
 def home():
-    return "Hram Pauka Bot is running!"
+    return "Hram Pauka Bot is running via Webhooks!"
+
+# Веб-хук точка, куда Telegram шлет все сообщения и данные
+@app.route(f'/{TOKEN}', methods=['POST'])
+def webhook():
+    if request.headers.get('content-type') == 'application/json':
+        json_string = request.get_data().decode('utf-8')
+        update = telebot.types.Update.de_json(json_string)
+        bot.process_new_updates([update])
+        return '', 200
+    else:
+        return 'Forbidden', 403
 
 @bot.message_handler(commands=['start'])
 def send_welcome(message):
@@ -47,23 +61,17 @@ def handle_web_app_data(message):
         order_text += f"\n💰 **Итого к оплате:** {total} ₽"
         
         bot.send_message(message.chat.id, order_text, parse_mode="Markdown")
-        print("Заказ успешно отправлен!")
+        print("Заказ успешно отправлен в чат!")
         
     except Exception as e:
         print(f"Ошибка обработки заказа: {e}")
-        bot.send_message(message.chat.id, f"Ошибка при обработке заказа.")
-
-# Запуск поллинга в отдельном безопасном потоке только один раз
-import threading
-if os.environ.get("WERKZEUG_RUN_MAIN") == "true" or os.environ.get("RENDER"):
-    def run_polling():
-        print("Старт бесконечного опроса Telegram...")
-        bot.infinity_polling(timeout=10, long_polling_timeout=5)
-    
-    t = threading.Thread(target=run_polling, daemon=True)
-    t.start()
+        bot.send_message(message.chat.id, "Ошибка при обработке заказа.")
 
 if __name__ == '__main__':
+    # Сбрасываем старые getUpdates и устанавливаем вебхук в Telegram
+    bot.remove_webhook()
+    bot.set_webhook(url=WEBHOOK_URL)
+    print(вебхук установлен на: {WEBHOOK_URL})
+    
     port = int(os.environ.get("PORT", 10000))
-    # Включаем use_reloader=False, чтобы Flask не перезапускал приложение и не плодил копии бота
-    app.run(host="0.0.0.0", port=port, debug=False, use_reloader=False)
+    app.run(host="0.0.0.0", port=port)
