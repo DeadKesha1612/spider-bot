@@ -35,7 +35,6 @@ def load_products():
 
 def save_products(data):
     try:
-        # Сначала пишем во временный файл, чтобы не повредить основной при сбое
         temp_file = PRODUCTS_FILE + ".tmp"
         with open(temp_file, "w", encoding="utf-8") as f:
             json.dump(data, f, ensure_ascii=False, indent=4)
@@ -43,7 +42,6 @@ def save_products(data):
     except Exception as e:
         print(f"Ошибка сохранения products.json: {e}")
 
-# Проверяем и инициализируем файл базы при старте
 if not os.path.exists(PRODUCTS_FILE):
     save_products({})
 
@@ -112,7 +110,6 @@ def view_category_item(call):
     markup = telebot.types.InlineKeyboardMarkup()
     is_admin = (int(call.message.chat.id) == int(ADMIN_ID))
     
-    # Если в категории нет товаров
     if not cat_items:
         text = f"📁 Категория: *{CATEGORIES.get(cat_key, 'Товары')}*\n\nВ этой категории пока нет товаров."
         
@@ -129,7 +126,6 @@ def view_category_item(call):
         bot.send_message(call.message.chat.id, text, parse_mode="Markdown", reply_markup=markup)
         return
 
-    # Циклическая пагинация
     total_items = len(cat_items)
     index = index % total_items
     item_id, item = cat_items[index]
@@ -147,17 +143,14 @@ def view_category_item(call):
         f"⏱ Срок изготовления: {time_val}"
     )
     
-    # 1. Корзина
     markup.add(telebot.types.InlineKeyboardButton("🛒 Добавить в корзину", callback_data=f"cart_add_{item_id}"))
     
-    # 2. Кнопки Назад / Вперед
     nav_buttons = [
         telebot.types.InlineKeyboardButton("⬅️ Назад", callback_data=f"cat_{cat_key}_{index - 1}"),
         telebot.types.InlineKeyboardButton("Вперед ➡️", callback_data=f"cat_{cat_key}_{index + 1}")
     ]
     markup.row(*nav_buttons)
     
-    # 3. Админские кнопки видны ТОЛЬКО тебе
     if is_admin:
         markup.add(telebot.types.InlineKeyboardButton("➕ Добавить товар", callback_data=f"admin_add_{cat_key}"))
         markup.add(
@@ -165,7 +158,6 @@ def view_category_item(call):
             telebot.types.InlineKeyboardButton("🗑 Удалить товар", callback_data=f"admin_del_{cat_key}_{index}_{item_id}")
         )
 
-    # 4. Возврат к списку категорий
     markup.add(telebot.types.InlineKeyboardButton("🔙 К категориям", callback_data="catalog"))
     
     if item.get("photo"):
@@ -257,7 +249,7 @@ def back_to_menu(call):
         del admin_states[call.message.chat.id]
     show_main_menu(call.message.chat.id)
 
-# --- АДМИНКА ---
+# --- АДМИНКА (ПОШАГОВЫЙ ДОБАВИТЕЛЬ) ---
 
 @bot.callback_query_handler(func=lambda call: call.data.startswith("admin_add_"))
 def admin_add_start(call):
@@ -340,11 +332,13 @@ def handle_admin_flow(message):
             markup = telebot.types.InlineKeyboardMarkup()
             markup.add(telebot.types.InlineKeyboardButton("Пропустить фото", callback_data="skip_photo"))
             bot.send_message(chat_id, "🖼 Шаг 2/5: Отправь фото товара (или нажми кнопку):", reply_markup=markup)
+            return
             
         elif step == "photo":
             state["photo"] = message.photo[-1].file_id if message.photo else None
             state["step"] = "price"
             bot.send_message(chat_id, "💵 Шаг 3/5: Напиши цену цифрами (например: 600):")
+            return
             
         elif step == "price":
             try:
@@ -353,6 +347,7 @@ def handle_admin_flow(message):
                 bot.send_message(chat_id, "🧵 Шаг 4/5: Укажи материал (например: Паракорд 550):")
             except ValueError:
                 bot.send_message(chat_id, "❌ Цена должна быть числом. Повтори ввод:")
+            return
                 
         elif step == "material":
             if not message.text:
@@ -361,6 +356,7 @@ def handle_admin_flow(message):
             state["material"] = message.text.strip()
             state["step"] = "time"
             bot.send_message(chat_id, "⏱ Шаг 5/5: Укажи срок изготовления (например: 1-2 дня):")
+            return
             
         elif step == "time":
             text_val = message.text.strip() if message.text else "1-2 дня"
@@ -384,6 +380,7 @@ def handle_admin_flow(message):
             
             bot.send_message(chat_id, f"🎉 Товар успешно добавлен в категорию «{CATEGORIES.get(cat_key)}»!")
             show_main_menu(chat_id)
+            return
 
     elif action == "edit":
         item_id = state["item_id"]
@@ -394,6 +391,7 @@ def handle_admin_flow(message):
             state["new_name"] = message.text.strip() if message.text else item.get('name')
             state["step"] = "price"
             bot.send_message(chat_id, f"💵 Шаг 2/3: Напиши новую цену (текущая: {item.get('price')}):")
+            return
             
         elif step == "price":
             try:
@@ -402,6 +400,7 @@ def handle_admin_flow(message):
                 bot.send_message(chat_id, f"🧵 Шаг 3/3: Укажи новый материал (текущий: {item.get('material')}):")
             except ValueError:
                 bot.send_message(chat_id, "❌ Цена должна быть числом. Повтори ввод:")
+            return
                 
         elif step == "material":
             if not message.text:
@@ -418,6 +417,7 @@ def handle_admin_flow(message):
             
             bot.send_message(chat_id, "✅ Товар успешно обновлен!")
             show_main_menu(chat_id)
+            return
 
 if __name__ == '__main__':
     bot.remove_webhook()
