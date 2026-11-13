@@ -1,7 +1,7 @@
 import telebot
 import json
 
-TOKEN = "9037922529:AAFXbac00LXXVDpMaX2zK9ua2HKpQvWxCko"
+TOKEN = "9037922529:AAGajC8OlDJCkagMVBEV0qGSivuDRDdYxyk"
 bot = telebot.TeleBot(TOKEN)
 
 # Приветствие и кнопка со ссылкой на твой Netlify-каталог
