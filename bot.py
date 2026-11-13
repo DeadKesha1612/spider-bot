@@ -72,17 +72,15 @@ def open_catalog(call):
     products = load_products()
     markup = telebot.types.InlineKeyboardMarkup()
     
+    # Удаляем старое сообщение, чтобы не было конфликтов интерфейса
+    try:
+        bot.delete_message(call.message.chat.id, call.message.message_id)
+    except Exception:
+        pass
+    
     if not products:
         markup.add(telebot.types.InlineKeyboardButton("🔙 Главное меню", callback_data="main_menu"))
-        try:
-            bot.edit_message_text(
-                "🛍 Каталог товаров пуст.\nВ каталоге пока нет ни одного товара.", 
-                call.message.chat.id, 
-                call.message.message_id, 
-                reply_markup=markup
-            )
-        except Exception:
-            bot.send_message(call.message.chat.id, "🛍 Каталог товаров пуст.", reply_markup=markup)
+        bot.send_message(call.message.chat.id, "🛍 Каталог товаров пуст.\nВ каталоге пока нет ни одного товара.", reply_markup=markup)
         return
 
     for item_id, item in products.items():
@@ -92,15 +90,11 @@ def open_catalog(call):
     markup.add(telebot.types.InlineKeyboardButton("🛒 Корзина / Оформить", callback_data="view_cart"))
     markup.add(telebot.types.InlineKeyboardButton("🔙 Главное меню", callback_data="main_menu"))
     
-    try:
-        bot.edit_message_text(
-            "🛍 Каталог товаров:\nВыбери товар, чтобы посмотреть подробности и добавить в корзину:", 
-            call.message.chat.id, 
-            call.message.message_id, 
-            reply_markup=markup
-        )
-    except Exception:
-        bot.send_message(call.message.chat.id, "🛍 Каталог товаров:", reply_markup=markup)
+    bot.send_message(
+        call.message.chat.id, 
+        "🛍 Каталог товаров:\nВыбери товар, чтобы посмотреть подробности и добавить в корзину:", 
+        reply_markup=markup
+    )
 
 @bot.callback_query_handler(func=lambda call: call.data.startswith("view_item_"))
 def view_item_card(call):
@@ -155,6 +149,11 @@ def view_cart(call):
     chat_id = call.message.chat.id
     cart = user_carts.get(chat_id, [])
     
+    try:
+        bot.delete_message(chat_id, call.message.message_id)
+    except Exception:
+        pass
+        
     markup = telebot.types.InlineKeyboardMarkup()
     
     if not cart:
@@ -173,11 +172,7 @@ def view_cart(call):
         markup.add(telebot.types.InlineKeyboardButton("🛍 Продолжить покупки", callback_data="catalog"))
         
     markup.add(telebot.types.InlineKeyboardButton("🔙 Главное меню", callback_data="main_menu"))
-    
-    try:
-        bot.edit_message_text(text, chat_id, call.message.message_id, reply_markup=markup)
-    except Exception:
-        bot.send_message(chat_id, text, reply_markup=markup)
+    bot.send_message(chat_id, text, reply_markup=markup)
 
 @bot.callback_query_handler(func=lambda call: call.data == "clear_cart")
 def clear_cart(call):
@@ -227,6 +222,11 @@ def add_product_start(call):
     markup = telebot.types.InlineKeyboardMarkup()
     markup.add(telebot.types.InlineKeyboardButton("❌ Отмена", callback_data="main_menu"))
     
+    try:
+        bot.delete_message(call.message.chat.id, call.message.message_id)
+    except Exception:
+        pass
+        
     bot.send_message(call.message.chat.id, "✍️ Шаг 1/5: Напиши название нового товара:", reply_markup=markup)
 
 @bot.callback_query_handler(func=lambda call: call.data == "skip_photo")
@@ -319,5 +319,5 @@ if __name__ == '__main__':
         
     print(f"Вебхук установлен на: {WEBHOOK_URL}")
     
-    port = int(os.environ.get("PORT", 10000))
+    port = int(os.environ.format("PORT", 10000))
     app.run(host="0.0.0.0", port=port)
