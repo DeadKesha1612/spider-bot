@@ -71,7 +71,7 @@ if __name__ == '__main__':
     # Сбрасываем старые getUpdates и устанавливаем вебхук в Telegram
     bot.remove_webhook()
     bot.set_webhook(url=WEBHOOK_URL)
-    print(вебхук установлен на: {WEBHOOK_URL})
+        print(f"Вебхук установлен на: {WEBHOOK_URL}")
     
     port = int(os.environ.get("PORT", 10000))
     app.run(host="0.0.0.0", port=port)
