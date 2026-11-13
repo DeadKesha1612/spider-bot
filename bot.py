@@ -9,12 +9,9 @@ bot = telebot.TeleBot(TOKEN)
 app = Flask(__name__)
 WEBHOOK_URL = f"https://thespidertemplebot.onrender.com/{TOKEN}"
 
-# Твой персональный Telegram ID
 ADMIN_ID = 622304662
-
 PRODUCTS_FILE = "products.json"
 
-# Временные хранилища
 user_carts = {}
 admin_states = {}
 
@@ -30,7 +27,7 @@ def save_products(data):
 
 @app.route('/')
 def home():
-    return "Hram Pauka Bot with full item creation is running!"
+    return "Hram Pauka Bot is running!"
 
 @app.route(f'/{TOKEN}', methods=['POST'])
 def webhook():
@@ -72,7 +69,7 @@ def open_catalog(call):
     if not products:
         markup.add(telebot.types.InlineKeyboardButton("🔙 Главное меню", callback_data="main_menu"))
         bot.edit_message_text(
-            "🛍 **Каталог товаров пуст.**\nАдминистратор еще не добавил ни одного товара.", 
+            "🛍 **Каталог товаров пуст.**\nТы еще не добавил ни одного товара через админку.", 
             call.message.chat.id, 
             call.message.message_id, 
             reply_markup=markup, 
@@ -94,6 +91,7 @@ def open_catalog(call):
         reply_markup=markup, 
         parse_mode="Markdown"
     )
+    bot.answer_callback_query(call.id)
 
 @bot.callback_query_handler(func=lambda call: call.data.startswith("view_item_"))
 def view_item_card(call):
@@ -116,13 +114,16 @@ def view_item_card(call):
     markup.add(telebot.types.InlineKeyboardButton("🛒 Добавить в корзину", callback_data=f"add_{item_id}"))
     markup.add(telebot.types.InlineKeyboardButton("◀️ Назад в каталог", callback_data="catalog"))
 
-    bot.delete_message(call.message.chat.id, call.message.message_id)
+    try:
+        bot.delete_message(call.message.chat.id, call.message.message_id)
+    except Exception:
+        pass
     
-    # Если есть фото — отправляем с фото, если нет — просто текст
     if item.get("photo"):
         bot.send_photo(call.message.chat.id, item["photo"], caption=caption, reply_markup=markup, parse_mode="Markdown")
     else:
         bot.send_message(call.message.chat.id, caption, reply_markup=markup, parse_mode="Markdown")
+    bot.answer_callback_query(call.id)
 
 @bot.callback_query_handler(func=lambda call: call.data.startswith("add_"))
 def add_to_cart(call):
@@ -167,6 +168,7 @@ def view_cart(call):
         bot.edit_message_text(text, chat_id, call.message.message_id, reply_markup=markup, parse_mode="Markdown")
     except Exception:
         bot.send_message(chat_id, text, reply_markup=markup, parse_mode="Markdown")
+    bot.answer_callback_query(call.id)
 
 @bot.callback_query_handler(func=lambda call: call.data == "clear_cart")
 def clear_cart(call):
@@ -191,6 +193,7 @@ def checkout_order(call):
     bot.send_message(chat_id, order_text, parse_mode="Markdown")
     
     user_carts[chat_id] = []
+    bot.answer_callback_query(call.id)
 
 @bot.callback_query_handler(func=lambda call: call.data == "main_menu")
 def back_to_menu(call):
@@ -199,8 +202,9 @@ def back_to_menu(call):
     except Exception:
         pass
     show_main_menu(call.message.chat.id, call.from_user.id, "Главное меню:")
+    bot.answer_callback_query(call.id)
 
-# --- ПОШАГОВАЯ АДМИНКА ДЛЯ ДОБАВЛЕНИЯ ТОВАРА ---
+# --- АДМИНКА ДЛЯ ДОБАВЛЕНИЯ ТОВАРА ---
 
 @bot.callback_query_handler(func=lambda call: call.data == "add_product_start")
 def add_product_start(call):
@@ -211,7 +215,9 @@ def add_product_start(call):
     admin_states[call.message.chat.id] = {"step": "name"}
     markup = telebot.types.InlineKeyboardMarkup()
     markup.add(telebot.types.InlineKeyboardButton("❌ Отмена", callback_data="main_menu"))
+    
     bot.edit_message_text("✍️ Шаг 1/5: Напиши **название** нового товара:", call.message.chat.id, call.message.message_id, reply_markup=markup, parse_mode="Markdown")
+    bot.answer_callback_query(call.id)
 
 @bot.message_handler(content_types=['text', 'photo'], func=lambda message: message.chat.id in admin_states)
 def handle_admin_creation(message):
@@ -264,7 +270,6 @@ def handle_admin_creation(message):
             return
         state["time"] = message.text.strip()
         
-        # Сохранение товара в products.json
         products = load_products()
         item_id = f"item_{int(os.urandom(3).hex(), 16)}"
         
@@ -291,10 +296,18 @@ def skip_photo(call):
         admin_states[chat_id]["photo"] = None
         admin_states[chat_id]["step"] = "price"
         bot.edit_message_text("💵 Шаг 3/5: Напиши **цену** товара цифрами (например: `750`):", chat_id, call.message.message_id, parse_mode="Markdown")
+    bot.answer_callback_query(call.id)
 
 if __name__ == '__main__':
     bot.remove_webhook()
     bot.set_webhook(url=WEBHOOK_URL)
+    
+    # Принудительно удаляем старую кнопку меню (Web App) слева от строки ввода
+    try:
+        bot.delete_chat_menu_button()
+    except Exception:
+        pass
+        
     print(f"Вебхук установлен на: {WEBHOOK_URL}")
     
     port = int(os.environ.get("PORT", 10000))
