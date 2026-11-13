@@ -9,6 +9,9 @@ bot = telebot.TeleBot(TOKEN)
 app = Flask(__name__)
 WEBHOOK_URL = f"https://thespidertemplebot.onrender.com/{TOKEN}"
 
+# Твой персональный Telegram ID как единственного администратора
+ADMIN_ID = 622304662
+
 # Файл для хранения товаров на сервере Render
 PRODUCTS_FILE = "products.json"
 
@@ -37,7 +40,7 @@ def save_products(data):
 
 @app.route('/')
 def home():
-    return "Hram Pauka Bot is running strictly in-chat!"
+    return "Hram Pauka Bot is running securely!"
 
 @app.route(f'/{TOKEN}', methods=['POST'])
 def webhook():
@@ -57,13 +60,17 @@ def send_welcome(message):
         "Здесь ты можешь посмотреть каталог изделий, собрать заказ "
         "и отправить его прямо в чат."
     )
-    show_main_menu(message.chat.id, text)
+    show_main_menu(message.chat.id, message.from_user.id, text)
 
-def show_main_menu(chat_id, text):
+def show_main_menu(chat_id, user_id, text):
     markup = telebot.types.InlineKeyboardMarkup()
     markup.add(telebot.types.InlineKeyboardButton("🛍 Открыть каталог", callback_data="catalog"))
     markup.add(telebot.types.InlineKeyboardButton("🛒 Корзина", callback_data="view_cart"))
-    markup.add(telebot.types.InlineKeyboardButton("➕ Добавить товар (Админ)", callback_data="add_product_start"))
+    
+    # Кнопка админки показывается ТОЛЬКО тебе
+    if user_id == ADMIN_ID:
+        markup.add(telebot.types.InlineKeyboardButton("➕ Добавить товар (Админ)", callback_data="add_product_start"))
+        
     bot.send_message(chat_id, text, reply_markup=markup, parse_mode="Markdown")
 
 # --- КАТАЛОГ И ПОКУПКИ ---
@@ -164,16 +171,20 @@ def checkout_order(call):
 @bot.callback_query_handler(func=lambda call: call.data == "main_menu")
 def back_to_menu(call):
     bot.delete_message(call.message.chat.id, call.message.message_id)
-    show_main_menu(call.message.chat.id, "Главное меню:")
+    show_main_menu(call.message.chat.id, call.from_user.id, "Главное меню:")
 
 @bot.callback_query_handler(func=lambda call: call.data == "noop")
 def noop(call):
     bot.answer_callback_query(call.id)
 
-# --- АДМИНКА: ДОБАВЛЕНИЕ ТОВАРОВ ИЗ ЧАТА ---
+# --- АДМИНКА (ТОЛЬКО ДЛЯ АДМИНА) ---
 
 @bot.callback_query_handler(func=lambda call: call.data == "add_product_start")
 def add_product_start(call):
+    if call.from_user.id != ADMIN_ID:
+        bot.answer_callback_query(call.id, "❌ У тебя нет прав администратора.", show_alert=True)
+        return
+        
     admin_states[call.message.chat.id] = {"step": "category"}
     markup = telebot.types.InlineKeyboardMarkup()
     markup.add(telebot.types.InlineKeyboardButton("Темляки и брелоки", callback_data="cat_lanyards"))
@@ -183,6 +194,9 @@ def add_product_start(call):
 
 @bot.callback_query_handler(func=lambda call: call.data.startswith("cat_"))
 def add_product_cat(call):
+    if call.from_user.id != ADMIN_ID:
+        return
+        
     cat_key = call.data.replace("cat_", "")
     cat_name = "Темляки и брелоки" if cat_key == "lanyards" else "Браслеты из паракорда"
     admin_states[call.message.chat.id] = {"step": "name", "category": cat_name}
@@ -190,6 +204,9 @@ def add_product_cat(call):
 
 @bot.message_handler(func=lambda message: message.chat.id in admin_states)
 def handle_admin_input(message):
+    if message.from_user.id != ADMIN_ID:
+        return
+        
     state = admin_states[message.chat.id]
     chat_id = message.chat.id
     
@@ -221,19 +238,3 @@ def handle_admin_input(message):
             "time": state["time"]
         }
         
-        if cat not in products:
-            products[cat] = []
-        products[cat].append(new_item)
-        save_products(products)
-        
-        del admin_states[chat_id]
-        bot.send_message(chat_id, f"🎉 **Товар успешно добавлен!**\n\n📌 Название: {new_item['name']}\n💵 Цена: {new_item['price']} ₽\n⏱ Срок: {new_item['time']}", parse_mode="Markdown")
-        show_main_menu(chat_id, "Главное меню:")
-
-if __name__ == '__main__':
-    bot.remove_webhook()
-    bot.set_webhook(url=WEBHOOK_URL)
-    print(f"Вебхук установлен на: {WEBHOOK_URL}")
-    
-    port = int(os.environ.get("PORT", 10000))
-    app.run(host="0.0.0.0", port=port)
