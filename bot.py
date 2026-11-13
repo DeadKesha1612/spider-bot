@@ -45,11 +45,6 @@ def send_welcome(message):
     if message.chat.id in admin_states:
         del admin_states[message.chat.id]
         
-    text = (
-        "Приветствую! Добро пожаловать в мастерскую **Храм Паука**.\n\n"
-        "Здесь ты можешь посмотреть каталог изделий, собрать заказ "
-        "и отправить его прямо в чат."
-    )
     show_main_menu(message.chat.id)
 
 def show_main_menu(chat_id):
@@ -137,7 +132,8 @@ def view_item_card(call):
     else:
         bot.send_message(call.message.chat.id, caption, reply_markup=markup, parse_mode="Markdown")
 
-@bot.callback_query_handler(func=lambda call: call.data.startswith("add_"))
+# Добавление в корзину (исключаем технические callback'и, начинающиеся с add_product)
+@bot.callback_query_handler(func=lambda call: call.data.startswith("add_") and not call.data.startswith("add_product"))
 def add_to_cart(call):
     item_id = call.data.replace("add_", "")
     products = load_products()
