@@ -8,14 +8,12 @@ bot = telebot.TeleBot(TOKEN)
 
 app = Flask(__name__)
 
-# URL твоего сайта на Render (автоматически подставится или пропишется)
 WEBHOOK_URL = f"https://thespidertemplebot.onrender.com/{TOKEN}"
 
 @app.route('/')
 def home():
     return "Hram Pauka Bot is running via Webhooks!"
 
-# Веб-хук точка, куда Telegram шлет все сообщения и данные
 @app.route(f'/{TOKEN}', methods=['POST'])
 def webhook():
     if request.headers.get('content-type') == 'application/json':
@@ -68,10 +66,9 @@ def handle_web_app_data(message):
         bot.send_message(message.chat.id, "Ошибка при обработке заказа.")
 
 if __name__ == '__main__':
-    # Сбрасываем старые getUpdates и устанавливаем вебхук в Telegram
     bot.remove_webhook()
     bot.set_webhook(url=WEBHOOK_URL)
-        print(f"Вебхук установлен на: {WEBHOOK_URL}")
+    print(f"Вебхук установлен на: {WEBHOOK_URL}")
     
     port = int(os.environ.get("PORT", 10000))
     app.run(host="0.0.0.0", port=port)
