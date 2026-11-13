@@ -22,12 +22,12 @@ CATEGORIES = {
     "beads": "Бусины, фигурки"
 }
 
-# Варианты для кастомизации
+# Обновленные варианты для кастомизации (застежки исправлены)
 CUSTOM_OPTIONS = {
     "colors": ["Олива", "Койот", "Черный", "Камуфляж", "Песочный"],
     "thickness": ["Паракорд 550 (стандарт)", "Микрокорд (тонкий)"],
     "beads": ["Самурай", "Маска Онимаска", "Череп", "Без бусины"],
-    "clasps": ["Пластиковый фастекс", "Металлическая пряжка", "Петля-пуговица"]
+    "clasps": ["Пластмассовый фастекс", "Шакл", "Винтовая застежка"]
 }
 
 def load_products():
@@ -234,12 +234,9 @@ def show_custom_paracord_menu(chat_id, message_id=None):
     )
     markup = telebot.types.InlineKeyboardMarkup()
     
-    # Кнопки выбора цвета
     markup.add(telebot.types.InlineKeyboardButton("🎨 Выбрать цвет паракорда", callback_data="custom_choose_color"))
-    # Кнопки выбора толщины
     markup.add(telebot.types.InlineKeyboardButton("📏 Выбрать толщину паракорда", callback_data="custom_choose_thick"))
     
-    # Кнопка перехода к следующему шагу (если параметры паракорда заданы)
     if state.get("color") and state.get("thickness"):
         markup.add(telebot.types.InlineKeyboardButton("➡️ Далее: Выбор бусины", callback_data="custom_step_bead"))
         
@@ -426,7 +423,6 @@ def custom_add_to_cart(call):
     bot.answer_callback_query(call.id, "✅ Кастомный товар добавлен в корзину!")
     del custom_states[chat_id]
     
-    # Перенаправляем в корзину
     call.data = "view_cart"
     view_cart(call)
 
