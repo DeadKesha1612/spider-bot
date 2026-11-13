@@ -26,9 +26,7 @@ def webhook():
 
 @bot.message_handler(commands=['start'])
 def send_welcome(message):
-    print(f"Получена команда /start от {message.chat.id}")
     markup = telebot.types.InlineKeyboardMarkup()
-    # Ссылка на каталог GitHub Pages
     web_app = telebot.types.WebAppInfo(url="https://deadkesha1612.github.io/spider-bot/") 
     markup.add(telebot.types.InlineKeyboardButton("🛍 Открыть каталог «Храм Паука»", web_app=web_app))
     
@@ -40,31 +38,12 @@ def send_welcome(message):
 
 @bot.message_handler(content_types=['web_app_data'])
 def handle_web_app_data(message):
-    print(f"--- ПОЛУЧЕНЫ ДАННЫЕ ИЗ WEB APP от {message.chat.id} ---")
-    try:
-        cart_items = json.loads(message.web_app_data.data)
-        
-        if not cart_items:
-            bot.send_message(message.chat.id, "Корзина пуста!")
-            return
-
-        order_text = "🛒 **Новый заказ из каталога Храм Паука:**\n\n"
-        total = 0
-        
-        for item in cart_items:
-            name = item.get('name', 'Товар')
-            price = item.get('price', 0)
-            order_text += f"• {name} — {price} ₽\n"
-            total += price
-            
-        order_text += f"\n💰 **Итого к оплате:** {total} ₽"
-        
-        bot.send_message(message.chat.id, order_text, parse_mode="Markdown")
-        print("Заказ успешно отправлен в чат!")
-        
-    except Exception as e:
-        print(f"Ошибка обработки заказа: {e}")
-        bot.send_message(message.chat.id, "Ошибка при обработке заказа.")
+    print(f"--- СЫРЫЕ ДАННЫЕ: {message.web_app_data.data} ---")
+    # Отправляем в чат всё, что пришло от каталога, без сложной обработки
+    bot.send_message(
+        message.chat.id, 
+        f"📥 Получены данные из каталога:\n\n{message.web_app_data.data}"
+    )
 
 if __name__ == '__main__':
     bot.remove_webhook()
