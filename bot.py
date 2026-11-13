@@ -42,6 +42,10 @@ def webhook():
 @bot.message_handler(commands=['start'])
 def send_welcome(message):
     user_carts[message.chat.id] = []
+    # Сбрасываем возможное зависшее состояние админки при старте
+    if message.chat.id in admin_states:
+        del admin_states[message.chat.id]
+        
     text = (
         "Приветствую! Добро пожаловать в мастерскую **Храм Паука**.\n\n"
         "Здесь ты можешь посмотреть каталог изделий, собрать заказ "
@@ -75,6 +79,7 @@ def open_catalog(call):
             reply_markup=markup, 
             parse_mode="Markdown"
         )
+        bot.answer_callback_query(call.id)
         return
 
     for item_id, item in products.items():
@@ -197,6 +202,8 @@ def checkout_order(call):
 
 @bot.callback_query_handler(func=lambda call: call.data == "main_menu")
 def back_to_menu(call):
+    if call.message.chat.id in admin_states:
+        del admin_states[call.message.chat.id]
     try:
         bot.delete_message(call.message.chat.id, call.message.message_id)
     except Exception:
@@ -216,9 +223,22 @@ def add_product_start(call):
     markup = telebot.types.InlineKeyboardMarkup()
     markup.add(telebot.types.InlineKeyboardButton("❌ Отмена", callback_data="main_menu"))
     
-    bot.edit_message_text("✍️ Шаг 1/5: Напиши **название** нового товара:", call.message.chat.id, call.message.message_id, reply_markup=markup, parse_mode="Markdown")
+    bot.edit_message_text("✍️ **Шаг 1/5:** Напиши название нового товара:", call.message.chat.id, call.message.message_id, reply_markup=markup, parse_mode="Markdown")
     bot.answer_callback_query(call.id)
 
+# Отдельный обработчик для отмены через кнопку
+@bot.callback_query_handler(func=lambda call: call.data == "skip_photo")
+def skip_photo(call):
+    if call.from_user.id != ADMIN_ID:
+        return
+    chat_id = call.message.chat.id
+    if chat_id in admin_states and admin_states[chat_id]["step"] == "photo":
+        admin_states[chat_id]["photo"] = None
+        admin_states[chat_id]["step"] = "price"
+        bot.edit_message_text("💵 **Шаг 3/5:** Напиши цену товара цифрами (например: `750`):", chat_id, call.message.message_id, parse_mode="Markdown")
+    bot.answer_callback_query(call.id)
+
+# Обработка текстовых и фото сообщений для админки
 @bot.message_handler(content_types=['text', 'photo'], func=lambda message: message.chat.id in admin_states)
 def handle_admin_creation(message):
     if message.from_user.id != ADMIN_ID:
@@ -237,7 +257,7 @@ def handle_admin_creation(message):
         
         markup = telebot.types.InlineKeyboardMarkup()
         markup.add(telebot.types.InlineKeyboardButton("Пропустить фото", callback_data="skip_photo"))
-        bot.send_message(chat_id, "🖼 Шаг 2/5: Отправь **фотографию** товара (или нажми кнопку ниже, чтобы пропустить):", reply_markup=markup)
+        bot.send_message(chat_id, "🖼 **Шаг 2/5:** Отправь фотографию товара (или нажмите кнопку ниже):", reply_markup=markup, parse_mode="Markdown")
         
     elif step == "photo":
         if message.photo:
@@ -245,70 +265,17 @@ def handle_admin_creation(message):
         else:
             state["photo"] = None
         state["step"] = "price"
-        bot.send_message(chat_id, "💵 Шаг 3/5: Напиши **цену** товара цифрами (например: `750`):", parse_mode="Markdown")
+        bot.send_message(chat_id, "💵 **Шаг 3/5:** Напиши цену товара цифрами (например: `750`):", parse_mode="Markdown")
         
     elif step == "price":
         try:
             price = int(message.text.strip())
             state["price"] = price
             state["step"] = "material"
-            bot.send_message(chat_id, "🧵 Шаг 4/5: Укажи **материал** (например: `Паракорд 550, бусина латунь`):")
+            bot.send_message(chat_id, "🧵 **Шаг 4/5:** Укажи материал (например: `Паракорд 550, бусина латунь`):", parse_mode="Markdown")
         except ValueError:
             bot.send_message(chat_id, "❌ Цена должна быть целым числом. Введи цену еще раз:")
             
     elif step == "material":
         if not message.text:
-            bot.send_message(chat_id, "❌ Пожалуйста, введи материал текстом:")
-            return
-        state["material"] = message.text.strip()
-        state["step"] = "time"
-        bot.send_message(chat_id, "⏱ Шаг 5/5: Укажи **срок изготовления** (например: `1-2 дня`):")
-        
-    elif step == "time":
-        if not message.text:
-            bot.send_message(chat_id, "❌ Пожалуйста, введи срок текстом:")
-            return
-        state["time"] = message.text.strip()
-        
-        products = load_products()
-        item_id = f"item_{int(os.urandom(3).hex(), 16)}"
-        
-        products[item_id] = {
-            "name": state["name"],
-            "photo": state.get("photo"),
-            "price": state["price"],
-            "material": state["material"],
-            "time": state["time"]
-        }
-        
-        save_products(products)
-        del admin_states[chat_id]
-        
-        bot.send_message(chat_id, f"🎉 **Товар успешно добавлен в каталог!**\n\n📌 {state['name']} — {state['price']} ₽", parse_mode="Markdown")
-        show_main_menu(chat_id, message.from_user.id, "Главное меню:")
-
-@bot.callback_query_handler(func=lambda call: call.data == "skip_photo")
-def skip_photo(call):
-    if call.from_user.id != ADMIN_ID:
-        return
-    chat_id = call.message.chat.id
-    if chat_id in admin_states and admin_states[chat_id]["step"] == "photo":
-        admin_states[chat_id]["photo"] = None
-        admin_states[chat_id]["step"] = "price"
-        bot.edit_message_text("💵 Шаг 3/5: Напиши **цену** товара цифрами (например: `750`):", chat_id, call.message.message_id, parse_mode="Markdown")
-    bot.answer_callback_query(call.id)
-
-if __name__ == '__main__':
-    bot.remove_webhook()
-    bot.set_webhook(url=WEBHOOK_URL)
-    
-    # Принудительно удаляем старую кнопку меню (Web App) слева от строки ввода
-    try:
-        bot.delete_chat_menu_button()
-    except Exception:
-        pass
-        
-    print(f"Вебхук установлен на: {WEBHOOK_URL}")
-    
-    port = int(os.environ.get("PORT", 10000))
-    app.run(host="0.0.0.0", port=port)
+            bot.send_message(chat_id, "❌ Пожалуйста, введи материал
