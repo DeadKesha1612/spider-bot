@@ -3,6 +3,7 @@ import asyncio
 import logging
 from aiogram import Bot, Dispatcher, types
 from aiogram.filters import Command
+from aiogram.utils.keyboard import InlineKeyboardBuilder
 from aiohttp import web
 
 TOKEN = "9037922529:AAFXbac00LXXVDpMaX2zK9ua2HKpQvWxCko"
@@ -16,7 +17,7 @@ dp = Dispatcher()
 
 @dp.message(Command("start"))
 async def cmd_start(message: types.Message):
-    builder = types.InlineKeyboardBuilder()
+    builder = InlineKeyboardBuilder()
     builder.add(types.InlineKeyboardButton(
         text="🛍 Открыть каталог «Храм Паука»",
         web_app=types.WebAppInfo(url=WEB_APP_URL)
@@ -28,7 +29,6 @@ async def cmd_start(message: types.Message):
         parse_mode="Markdown"
     )
 
-# Обработчик веб-сервера для Render
 async def handle(request):
     return web.Response(text="Spider Bot is running 24/7!")
 
@@ -36,10 +36,8 @@ app = web.Application()
 app.router.add_get("/", handle)
 
 async def main():
-    # Запускаем телеграм-бота в фоновой задаче
     polling_task = asyncio.create_task(dp.start_polling(bot))
     
-    # Настраиваем и запускаем веб-сервер на порту Render
     runner = web.AppRunner(app)
     await runner.setup()
     port = int(os.environ.get("PORT", 10000))
@@ -47,7 +45,6 @@ async def main():
     await site.start()
     logging.info(f"Web server started on port {port}")
     
-    # Держим приложение работающим
     await polling_task
 
 if __name__ == "__main__":
