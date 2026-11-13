@@ -9,8 +9,8 @@ bot = telebot.TeleBot(TOKEN)
 app = Flask(__name__)
 WEBHOOK_URL = f"https://thespidertemplebot.onrender.com/{TOKEN}"
 
-# Твои данные администратора (и ID, и никнейм для надежности)
-ADMIN_ID = 622304662
+# Твой реальный ID и юзернейм
+ADMIN_ID = 5393257255
 ADMIN_USERNAME = "DeadKesha"
 
 PRODUCTS_FILE = "products.json"
@@ -29,7 +29,7 @@ def save_products(data):
         json.dump(data, f, ensure_ascii=False, indent=4)
 
 def is_admin(user):
-    """Проверка прав админа по ID или юзернейму"""
+    """Жесткая проверка: только ты имеешь доступ к админке"""
     if user.id == ADMIN_ID:
         return True
     if user.username and user.username.lower() == ADMIN_USERNAME.lower():
@@ -56,9 +56,6 @@ def send_welcome(message):
     if message.chat.id in admin_states:
         del admin_states[message.chat.id]
         
-    # Лог в консоль Render, чтобы проверить твой реальный ID в момент старта
-    print(f"DEBUG /start от пользователя: ID={message.from_user.id}, Username={message.from_user.username}")
-    
     text = (
         "Приветствую! Добро пожаловать в мастерскую **Храм Паука**.\n\n"
         "Здесь ты можешь посмотреть каталог изделий, собрать заказ "
@@ -71,7 +68,7 @@ def show_main_menu(chat_id, user, text):
     markup.add(telebot.types.InlineKeyboardButton("🛍 Открыть каталог", callback_data="catalog"))
     markup.add(telebot.types.InlineKeyboardButton("🛒 Корзина", callback_data="view_cart"))
     
-    # Проверяем права
+    # Кнопка добавления товара показывается СТРОГО ТЕБЕ
     if is_admin(user):
         markup.add(telebot.types.InlineKeyboardButton("➕ Добавить товар (Админ)", callback_data="add_product_start"))
         
@@ -87,7 +84,7 @@ def open_catalog(call):
     if not products:
         markup.add(telebot.types.InlineKeyboardButton("🔙 Главное меню", callback_data="main_menu"))
         bot.edit_message_text(
-            "🛍 **Каталог товаров пуст.**\nТы еще не добавил ни одного товара через админку.", 
+            "🛍 **Каталог товаров пуст.**\nВ каталоге пока нет ни одного товара.", 
             call.message.chat.id, 
             call.message.message_id, 
             reply_markup=markup, 
@@ -269,7 +266,7 @@ def handle_admin_creation(message):
         
         markup = telebot.types.InlineKeyboardMarkup()
         markup.add(telebot.types.InlineKeyboardButton("Пропустить фото", callback_data="skip_photo"))
-        bot.send_message(chat_id, "🖼 **Шаг 2/5:** Отправь фотографию товара (или нажмите кнопку ниже):", reply_markup=markup, parse_mode="Markdown")
+        bot.send_message(chat_id, "🖼 **Шаг 2/5:** Отправь фотографию товара (или нажми кнопку ниже):", reply_markup=markup, parse_mode="Markdown")
         
     elif step == "photo":
         if message.photo:
@@ -330,5 +327,5 @@ if __name__ == '__main__':
         
     print(f"Вебхук установлен на: {WEBHOOK_URL}")
     
-    port = int(os.environ.format("PORT", 10000))
+    port = int(os.environ.get("PORT", 10000))
     app.run(host="0.0.0.0", port=port)
