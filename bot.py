@@ -1,10 +1,10 @@
 import telebot
 import json
+import time
 
 TOKEN = "9037922529:AAGajC8OlDJCkagMVBEV0qGSivuDRDdYxyk"
 bot = telebot.TeleBot(TOKEN)
 
-# Приветствие и кнопка со ссылкой на твой Netlify-каталог
 @bot.message_handler(commands=['start'])
 def send_welcome(message):
     markup = telebot.types.InlineKeyboardMarkup()
@@ -17,7 +17,6 @@ def send_welcome(message):
         reply_markup=markup
     )
 
-# Обработчик заказов из мини-приложения
 @bot.message_handler(content_types=['web_app_data'])
 def handle_web_app_data(message):
     try:
@@ -42,4 +41,10 @@ def handle_web_app_data(message):
         bot.send_message(message.chat.id, "Ошибка при обработке заказа.")
 
 if __name__ == '__main__':
-    bot.infinity_polling()
+    while True:
+        try:
+            print("Запуск бота...")
+            bot.infinity_polling(timeout=10, long_polling_timeout=5)
+        except Exception as e:
+            print(f"Ошибка: {e}. Переподключение через 5 секунд...")
+            time.sleep(5)
