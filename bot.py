@@ -28,7 +28,7 @@ def webhook():
 def send_welcome(message):
     print(f"Получена команда /start от {message.chat.id}")
     markup = telebot.types.InlineKeyboardMarkup()
-    # Ссылка на каталог обновлена на GitHub Pages
+    # Ссылка на каталог GitHub Pages
     web_app = telebot.types.WebAppInfo(url="https://deadkesha1612.github.io/spider-bot/") 
     markup.add(telebot.types.InlineKeyboardButton("🛍 Открыть каталог «Храм Паука»", web_app=web_app))
     
