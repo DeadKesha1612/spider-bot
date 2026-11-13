@@ -20,7 +20,8 @@ def load_products():
         try:
             with open(PRODUCTS_FILE, "r", encoding="utf-8") as f:
                 return json.load(f)
-        except Exception:
+        except Exception as e:
+            print(f"Error loading products: {e}")
             return {}
     return {}
 
@@ -44,6 +45,7 @@ def webhook():
 
 @bot.message_handler(commands=['start'])
 def send_welcome(message):
+    print(f"COMMAND /START from user {message.chat.id}")
     user_carts[message.chat.id] = []
     if message.chat.id in admin_states:
         del admin_states[message.chat.id]
@@ -68,15 +70,17 @@ def show_main_menu(chat_id):
 
 @bot.callback_query_handler(func=lambda call: call.data == "catalog")
 def open_catalog(call):
+    print("CALLBACK: Нажали 'Открыть каталог'")
     bot.answer_callback_query(call.id)
     products = load_products()
+    print(f"Загруженные товары: {products}")
+    
     markup = telebot.types.InlineKeyboardMarkup()
     
-    # Удаляем старое сообщение, чтобы не было конфликтов интерфейса
     try:
         bot.delete_message(call.message.chat.id, call.message.message_id)
-    except Exception:
-        pass
+    except Exception as e:
+        print(f"Не удалось удалить старое сообщение: {e}")
     
     if not products:
         markup.add(telebot.types.InlineKeyboardButton("🔙 Главное меню", callback_data="main_menu"))
@@ -95,6 +99,7 @@ def open_catalog(call):
         "🛍 Каталог товаров:\nВыбери товар, чтобы посмотреть подробности и добавить в корзину:", 
         reply_markup=markup
     )
+    print("Каталог успешно отправлен пользователю.")
 
 @bot.callback_query_handler(func=lambda call: call.data.startswith("view_item_"))
 def view_item_card(call):
@@ -319,5 +324,5 @@ if __name__ == '__main__':
         
     print(f"Вебхук установлен на: {WEBHOOK_URL}")
     
-    port = int(os.environ.format("PORT", 10000))
+    port = int(os.environ.get("PORT", 10000))
     app.run(host="0.0.0.0", port=port)
