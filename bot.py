@@ -14,11 +14,20 @@ PRODUCTS_FILE = "products.json"
 
 user_carts = {}
 admin_states = {}
+custom_states = {}  # Хранит состояние кастомизации для каждого пользователя
 
 CATEGORIES = {
     "bracelets": "Браслеты",
     "lanyards": "Брелоки / Темляки",
     "beads": "Бусины, фигурки"
+}
+
+# Варианты для кастомизации
+CUSTOM_OPTIONS = {
+    "colors": ["Олива", "Койот", "Черный", "Камуфляж", "Песочный"],
+    "thickness": ["Паракорд 550 (стандарт)", "Микрокорд (тонкий)"],
+    "beads": ["Самурай", "Маска Онимаска", "Череп", "Без бусины"],
+    "clasps": ["Пластиковый фастекс", "Металлическая пряжка", "Петля-пуговица"]
 }
 
 def load_products():
@@ -66,6 +75,8 @@ def send_welcome(message):
     user_carts[chat_id] = []
     if chat_id in admin_states:
         del admin_states[chat_id]
+    if chat_id in custom_states:
+        del custom_states[chat_id]
     show_main_menu(chat_id)
 
 @bot.message_handler(commands=['backup'])
@@ -117,7 +128,6 @@ def view_category_item(call):
         if isinstance(item, dict):
             item_cat = str(item.get("category", "")).strip().lower()
             target_cat = str(cat_key).strip().lower()
-            # Гибкая проверка для категорий
             if item_cat == target_cat or \
                (target_cat == "bracelets" and "браслет" in item_cat) or \
                (target_cat == "beads" and ("бусин" in item_cat or "фигурк" in item_cat)):
@@ -159,7 +169,12 @@ def view_category_item(call):
         f"⏱ Срок изготовления: {time_val}"
     )
     
+    # Кнопки взаимодействия
     markup.add(telebot.types.InlineKeyboardButton("🛒 Добавить в корзину", callback_data=f"cart_add_{item_id}"))
+    
+    # Кнопка кастомизации доступна для браслетов и темляков
+    if cat_key in ["bracelets", "lanyards"]:
+        markup.add(telebot.types.InlineKeyboardButton("🎨 Собрать свой вариант", callback_data=f"custom_start_{item_id}"))
     
     nav_buttons = [
         telebot.types.InlineKeyboardButton("⬅️ Назад", callback_data=f"cat_{cat_key}_{index - 1}"),
@@ -180,6 +195,240 @@ def view_category_item(call):
         bot.send_photo(call.message.chat.id, item["photo"], caption=text, parse_mode="Markdown", reply_markup=markup)
     else:
         bot.send_message(call.message.chat.id, text, parse_mode="Markdown", reply_markup=markup)
+
+# --- ИНТЕРАКТИВНЫЙ КОНСТРУКТОР (КАСТОМ) ---
+
+@bot.callback_query_handler(func=lambda call: call.data.startswith("custom_start_"))
+def custom_start(call):
+    bot.answer_callback_query(call.id)
+    item_id = call.data.replace("custom_start_", "")
+    products = load_products()
+    item = products.get(item_id)
+    if not item:
+        bot.send_message(call.message.chat.id, "❌ Товар не найден.")
+        return
+        
+    chat_id = call.message.chat.id
+    custom_states[chat_id] = {
+        "item_id": item_id,
+        "base_name": item.get("name"),
+        "base_price": item.get("price", 0),
+        "color": None,
+        "thickness": None,
+        "bead": None,
+        "clasp": None,
+        "spacers": False
+    }
+    show_custom_paracord_menu(chat_id, call.message.message_id)
+
+def show_custom_paracord_menu(chat_id, message_id=None):
+    state = custom_states.get(chat_id, {})
+    text = (
+        "🎨 **Конструктор изделия**\n\n"
+        f"📌 Основа: {state.get('base_name')}\n"
+        f"🧵 Паракорд: Цвет: *{state.get('color') or 'Не выбран'}* | Толщина: *{state.get('thickness') or 'Не выбрана'}*\n"
+        f"💀 Бусина: *{state.get('bead') or 'Не выбрана'}*\n"
+        f"🪝 Застежка: *{state.get('clasp') or 'Не выбрана'}*\n"
+        f"🔸 Разделители: *{'Да' if state.get('spacers') else 'Нет'}*\n\n"
+        "👇 Выберите параметры паракорда:"
+    )
+    markup = telebot.types.InlineKeyboardMarkup()
+    
+    # Кнопки выбора цвета
+    markup.add(telebot.types.InlineKeyboardButton("🎨 Выбрать цвет паракорда", callback_data="custom_choose_color"))
+    # Кнопки выбора толщины
+    markup.add(telebot.types.InlineKeyboardButton("📏 Выбрать толщину паракорда", callback_data="custom_choose_thick"))
+    
+    # Кнопка перехода к следующему шагу (если параметры паракорда заданы)
+    if state.get("color") and state.get("thickness"):
+        markup.add(telebot.types.InlineKeyboardButton("➡️ Далее: Выбор бусины", callback_data="custom_step_bead"))
+        
+    markup.add(telebot.types.InlineKeyboardButton("❌ Отмена кастома", callback_data="catalog"))
+    
+    if message_id:
+        try:
+            bot.edit_message_text(text, chat_id, message_id, parse_mode="Markdown", reply_markup=markup)
+            return
+        except Exception:
+            pass
+    bot.send_message(chat_id, text, parse_mode="Markdown", reply_markup=markup)
+
+@bot.callback_query_handler(func=lambda call: call.data == "custom_choose_color")
+def custom_choose_color(call):
+    bot.answer_callback_query(call.id)
+    markup = telebot.types.InlineKeyboardMarkup()
+    for color in CUSTOM_OPTIONS["colors"]:
+        markup.add(telebot.types.InlineKeyboardButton(color, callback_data=f"set_color_{color}"))
+    markup.add(telebot.types.InlineKeyboardButton("🔙 Назад", callback_data="custom_back_paracord"))
+    bot.edit_message_text("🎨 Выберите цвет паракорда:", call.message.chat.id, call.message.message_id, reply_markup=markup)
+
+@bot.callback_query_handler(func=lambda call: call.data.startswith("set_color_"))
+def set_color(call):
+    bot.answer_callback_query(call.id)
+    color = call.data.replace("set_color_", "")
+    chat_id = call.message.chat.id
+    if chat_id in custom_states:
+        custom_states[chat_id]["color"] = color
+    show_custom_paracord_menu(chat_id, call.message.message_id)
+
+@bot.callback_query_handler(func=lambda call: call.data == "custom_choose_thick")
+def custom_choose_thick(call):
+    bot.answer_callback_query(call.id)
+    markup = telebot.types.InlineKeyboardMarkup()
+    for thick in CUSTOM_OPTIONS["thickness"]:
+        markup.add(telebot.types.InlineKeyboardButton(thick, callback_data=f"set_thick_{thick}"))
+    markup.add(telebot.types.InlineKeyboardButton("🔙 Назад", callback_data="custom_back_paracord"))
+    bot.edit_message_text("📏 Выберите толщину паракорда:", call.message.chat.id, call.message.message_id, reply_markup=markup)
+
+@bot.callback_query_handler(func=lambda call: call.data.startswith("set_thick_"))
+def set_thick(call):
+    bot.answer_callback_query(call.id)
+    thick = call.data.replace("set_thick_", "")
+    chat_id = call.message.chat.id
+    if chat_id in custom_states:
+        custom_states[chat_id]["thickness"] = thick
+    show_custom_paracord_menu(chat_id, call.message.message_id)
+
+@bot.callback_query_handler(func=lambda call: call.data == "custom_back_paracord")
+def custom_back_paracord(call):
+    bot.answer_callback_query(call.id)
+    show_custom_paracord_menu(call.message.chat.id, call.message.message_id)
+
+# ШАГ 2: ВЫБОР БУСИНЫ
+@bot.callback_query_handler(func=lambda call: call.data == "custom_step_bead")
+def custom_step_bead(call):
+    bot.answer_callback_query(call.id)
+    chat_id = call.message.chat.id
+    state = custom_states.get(chat_id, {})
+    
+    text = (
+        "🎨 **Конструктор изделия** (Шаг 2: Бусина)\n\n"
+        f"🧵 Паракорд: {state.get('color')} / {state.get('thickness')}\n"
+        f"💀 Бусина: *{state.get('bead') or 'Не выбрана'}*\n\n"
+        "👇 Выберите центральную бусину:"
+    )
+    markup = telebot.types.InlineKeyboardMarkup()
+    for bead in CUSTOM_OPTIONS["beads"]:
+        markup.add(telebot.types.InlineKeyboardButton(bead, callback_data=f"set_bead_{bead}"))
+    
+    markup.add(
+        telebot.types.InlineKeyboardButton("⬅️ Назад к паракорду", callback_data="custom_back_to_paracord"),
+        telebot.types.InlineKeyboardButton("➡️ Далее: Застежка", callback_data="custom_step_clasp")
+    )
+    bot.edit_message_text(text, chat_id, call.message.message_id, parse_mode="Markdown", reply_markup=markup)
+
+@bot.callback_query_handler(func=lambda call: call.data.startswith("set_bead_"))
+def set_bead(call):
+    bot.answer_callback_query(call.id)
+    bead = call.data.replace("set_bead_", "")
+    chat_id = call.message.chat.id
+    if chat_id in custom_states:
+        custom_states[chat_id]["bead"] = bead
+    custom_step_bead(call)
+
+@bot.callback_query_handler(func=lambda call: call.data == "custom_back_to_paracord")
+def custom_back_to_paracord(call):
+    bot.answer_callback_query(call.id)
+    show_custom_paracord_menu(call.message.chat.id, call.message.message_id)
+
+# ШАГ 3: ВЫБОР ЗАСТЕЖКИ
+@bot.callback_query_handler(func=lambda call: call.data == "custom_step_clasp")
+def custom_step_clasp(call):
+    bot.answer_callback_query(call.id)
+    chat_id = call.message.chat.id
+    state = custom_states.get(chat_id, {})
+    
+    text = (
+        "🎨 **Конструктор изделия** (Шаг 3: Застежка)\n\n"
+        f"🧵 Паракорд: {state.get('color')} / {state.get('thickness')}\n"
+        f"💀 Бусина: {state.get('bead')}\n"
+        f"🪝 Застежка: *{state.get('clasp') or 'Не выбрана'}*\n\n"
+        "👇 Выберите застежку:"
+    )
+    markup = telebot.types.InlineKeyboardMarkup()
+    for clasp in CUSTOM_OPTIONS["clasps"]:
+        markup.add(telebot.types.InlineKeyboardButton(clasp, callback_data=f"set_clasp_{clasp}"))
+        
+    markup.add(
+        telebot.types.InlineKeyboardButton("⬅️ Назад к бусине", callback_data="custom_step_bead"),
+        telebot.types.InlineKeyboardButton("➡️ Далее: Итог", callback_data="custom_step_summary")
+    )
+    bot.edit_message_text(text, chat_id, call.message.message_id, parse_mode="Markdown", reply_markup=markup)
+
+@bot.callback_query_handler(func=lambda call: call.data.startswith("set_clasp_"))
+def set_clasp(call):
+    bot.answer_callback_query(call.id)
+    clasp = call.data.replace("set_clasp_", "")
+    chat_id = call.message.chat.id
+    if chat_id in custom_states:
+        custom_states[chat_id]["clasp"] = clasp
+    custom_step_clasp(call)
+
+# ШАГ 4: ИТОГ, РАЗДЕЛИТЕЛИ И КОРЗИНА
+@bot.callback_query_handler(func=lambda call: call.data in ["custom_step_summary", "custom_toggle_spacers"])
+def custom_step_summary(call):
+    bot.answer_callback_query(call.id)
+    chat_id = call.message.chat.id
+    state = custom_states.get(chat_id, {})
+    
+    if call.data == "custom_toggle_spacers":
+        state["spacers"] = not state.get("spacers", False)
+        
+    spacers_text = "Да (+100 ₽)" if state.get("spacers") else "Нет"
+    extra_price = 100 if state.get("spacers") else 0
+    total_price = state.get("base_price", 0) + extra_price
+    state["final_price"] = total_price
+    
+    text = (
+        "✅ **Ваш кастомный заказ собран!**\n\n"
+        f"📌 Изделие: {state.get('base_name')}\n"
+        f"🎨 Цвет: {state.get('color') or 'Не выбран'}\n"
+        f"📏 Толщина: {state.get('thickness') or 'Не выбрана'}\n"
+        f"💀 Бусина: {state.get('bead') or 'Не выбрана'}\n"
+        f"🪝 Застежка: {state.get('clasp') or 'Не выбрана'}\n"
+        f"🔸 Бусины-разделители: {spacers_text}\n\n"
+        f"💰 **Итоговая стоимость:** {total_price} ₽\n\n"
+        "Вы можете вернуться к любому шагу для изменения или добавить товар в корзину:"
+    )
+    
+    markup = telebot.types.InlineKeyboardMarkup()
+    markup.add(telebot.types.InlineKeyboardButton("🔄 Изменить паракорд", callback_data=f"custom_start_{state.get('item_id')}"))
+    markup.add(telebot.types.InlineKeyboardButton("🔄 Изменить бусину", callback_data="custom_step_bead"))
+    markup.add(telebot.types.InlineKeyboardButton("🔄 Изменить застежку", callback_data="custom_step_clasp"))
+    
+    spacer_btn_text = "❌ Убрать бусины-разделители" if state.get("spacers") else "➕ Добавить бусины-разделители (+100 ₽)"
+    markup.add(telebot.types.InlineKeyboardButton(spacer_btn_text, callback_data="custom_toggle_spacers"))
+    
+    markup.add(telebot.types.InlineKeyboardButton("🛒 Добавить кастом в корзину", callback_data="custom_add_to_cart"))
+    markup.add(telebot.types.InlineKeyboardButton("🔙 В каталог", callback_data="catalog"))
+    
+    bot.edit_message_text(text, chat_id, call.message.message_id, parse_mode="Markdown", reply_markup=markup)
+
+@bot.callback_query_handler(func=lambda call: call.data == "custom_add_to_cart")
+def custom_add_to_cart(call):
+    chat_id = call.message.chat.id
+    state = custom_states.get(chat_id)
+    if not state:
+        bot.answer_callback_query(call.id, "❌ Данные кастома устарели.")
+        return
+        
+    custom_item = {
+        "name": f"[Кастом] {state.get('base_name')} ({state.get('color')}, {state.get('bead')}, {state.get('clasp')})",
+        "price": state.get("final_price", state.get("base_price", 0)),
+        "material": f"Паракорд: {state.get('color')} ({state.get('thickness')}), Бусина: {state.get('bead')}, Застежка: {state.get('clasp')}, Разделители: {'Да' if state.get('spacers') else 'Нет'}",
+        "time": "2-3 дня"
+    }
+    
+    if chat_id not in user_carts:
+        user_carts[chat_id] = []
+    user_carts[chat_id].append(custom_item)
+    
+    bot.answer_callback_query(call.id, "✅ Кастомный товар добавлен в корзину!")
+    del custom_states[chat_id]
+    
+    # Перенаправляем в корзину
+    call.data = "view_cart"
+    view_cart(call)
 
 # --- КОРЗИНА И ЗАКАЗЫ ---
 
@@ -263,6 +512,8 @@ def back_to_menu(call):
     bot.answer_callback_query(call.id)
     if call.message.chat.id in admin_states:
         del admin_states[call.message.chat.id]
+    if call.message.chat.id in custom_states:
+        del custom_states[call.message.chat.id]
     show_main_menu(call.message.chat.id)
 
 # --- АДМИНКА ---
