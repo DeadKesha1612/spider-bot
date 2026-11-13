@@ -103,6 +103,7 @@ def view_category_item(call):
             cat_items.append((item_id, item))
     
     markup = telebot.types.InlineKeyboardMarkup()
+    is_admin = (int(call.message.chat.id) == int(ADMIN_ID))
     
     # Если в категории нет товаров
     if not cat_items:
@@ -115,8 +116,9 @@ def view_category_item(call):
         ]
         markup.row(*nav_buttons)
         
-        # ДОБАВЛЕНО: Кнопка добавления товара для пустой категории
-        markup.add(telebot.types.InlineKeyboardButton("➕ Добавить товар", callback_data=f"admin_add_{cat_key}"))
+        # Кнопка добавления только для админа
+        if is_admin:
+            markup.add(telebot.types.InlineKeyboardButton("➕ Добавить товар", callback_data=f"admin_add_{cat_key}"))
             
         markup.add(telebot.types.InlineKeyboardButton("🔙 К категориям", callback_data="catalog"))
         bot.send_message(call.message.chat.id, text, parse_mode="Markdown", reply_markup=markup)
@@ -150,12 +152,13 @@ def view_category_item(call):
     ]
     markup.row(*nav_buttons)
     
-    # 3. Админские кнопки (Добавить, Редактировать, Удалить)
-    markup.add(telebot.types.InlineKeyboardButton("➕ Добавить товар", callback_data=f"admin_add_{cat_key}"))
-    markup.add(
-        telebot.types.InlineKeyboardButton("✏️ Редактировать товар", callback_data=f"admin_edit_{item_id}"),
-        telebot.types.InlineKeyboardButton("🗑 Удалить товар", callback_data=f"admin_del_{cat_key}_{index}_{item_id}")
-    )
+    # 3. Админские кнопки видны ТОЛЬКО тебе
+    if is_admin:
+        markup.add(telebot.types.InlineKeyboardButton("➕ Добавить товар", callback_data=f"admin_add_{cat_key}"))
+        markup.add(
+            telebot.types.InlineKeyboardButton("✏️ Редактировать товар", callback_data=f"admin_edit_{item_id}"),
+            telebot.types.InlineKeyboardButton("🗑 Удалить товар", callback_data=f"admin_del_{cat_key}_{index}_{item_id}")
+        )
 
     # 4. Возврат к списку категорий
     markup.add(telebot.types.InlineKeyboardButton("🔙 К категориям", callback_data="catalog"))
@@ -254,6 +257,8 @@ def back_to_menu(call):
 @bot.callback_query_handler(func=lambda call: call.data.startswith("admin_add_"))
 def admin_add_start(call):
     bot.answer_callback_query(call.id)
+    if int(call.message.chat.id) != int(ADMIN_ID):
+        return
     cat_key = call.data.replace("admin_add_", "")
     
     admin_states[call.message.chat.id] = {"action": "add", "category": cat_key, "step": "name"}
@@ -265,6 +270,8 @@ def admin_add_start(call):
 @bot.callback_query_handler(func=lambda call: call.data.startswith("admin_del_"))
 def admin_delete_item(call):
     bot.answer_callback_query(call.id)
+    if int(call.message.chat.id) != int(ADMIN_ID):
+        return
     
     parts = call.data.replace("admin_del_", "").split("_")
     cat_key = parts[0]
@@ -283,6 +290,8 @@ def admin_delete_item(call):
 @bot.callback_query_handler(func=lambda call: call.data.startswith("admin_edit_"))
 def admin_edit_start(call):
     bot.answer_callback_query(call.id)
+    if int(call.message.chat.id) != int(ADMIN_ID):
+        return
     item_id = call.data.replace("admin_edit_", "")
     products = load_products()
     item = products.get(item_id)
@@ -308,6 +317,9 @@ def skip_photo(call):
 
 @bot.message_handler(content_types=['text', 'photo'], func=lambda message: message.chat.id in admin_states)
 def handle_admin_flow(message):
+    if int(message.chat.id) != int(ADMIN_ID):
+        return
+        
     chat_id = message.chat.id
     state = admin_states[chat_id]
     action = state.get("action")
