@@ -1,76 +1,53 @@
+import os
 import asyncio
-import json
 import logging
-from aiogram import Bot, Dispatcher, types, F
-from aiogram.filters import CommandStart
-from aiogram.types import WebAppInfo, ReplyKeyboardMarkup, KeyboardButton
+from aiogram import Bot, Dispatcher, types
+from aiogram.filters import Command
+from aiohttp import web
 
-BOT_TOKEN = "9037922529:AAFXbac00LXXVDpMaX2zK9ua2HKpQvWxCko"
+# Твои данные
+TOKEN = "9037922529:AAGw-EXAMPLE_TOKEN_HERE"  # токен твоего бота
 ADMIN_ID = 5393257255
-WEBAPP_URL = "https://dead-kesha.netlify.app/"
+WEB_APP_URL = "https://dead-kesha.netlify.app/"
 
 logging.basicConfig(level=logging.INFO)
-bot = Bot(token=BOT_TOKEN)
+
+bot = Bot(token=TOKEN)
 dp = Dispatcher()
 
-@dp.message(CommandStart())
+# Хранилище заказов или базовая логика
+@dp.message(Command("start"))
 async def cmd_start(message: types.Message):
-    kb = ReplyKeyboardMarkup(
-        keyboard=[[
-            KeyboardButton(
-                text="🕷 Открыть мастерскую Храма Паука",
-                web_app=WebAppInfo(url=WEBAPP_URL)
-            )
-        ]],
-        resize_keyboard=True
-    )
+    builder = types.InlineKeyboardBuilder()
+    builder.add(types.InlineKeyboardButton(
+        text="🛍 Открыть каталог «Храм Паука»",
+        web_app=types.WebAppInfo(url=WEB_APP_URL)
+    ))
     await message.answer(
-        "Добро пожаловать в мастерскую **Храм Паука** 🕸\n\n"
-        "Нажми кнопку ниже, чтобы собрать кастомное изделие, выбрать параметры и отправить заказ мастеру.",
-        reply_markup=kb,
+        "Приветствую! Добро пожаловать в мастерскую **Храм Паука**.\n\n"
+        "Нажми кнопку ниже, чтобы выбрать кастомные бусины, темляки, браслеты или сделать индивидуальный заказ:",
+        reply_markup=builder.as_markup(),
         parse_mode="Markdown"
     )
 
-@dp.message(F.web_app_data)
-async def handle_webapp_data(message: types.Message):
-    data = json.loads(message.web_app_data.data)
-    user = message.from_user
-    username = f"@{user.username}" if user.username else f"ID: {user.id}"
+# Заглушка веб-сервера для Render (чтобы проходил проверку портов)
+async def handle(request):
+    return web.Response(text="Spider Bot is running 24/7!")
 
-    order_text = (
-        f"🔥 **НОВЫЙ ЗАКАЗ | Храм Паука**\n"
-        f"👤 Клиент: {user.full_name} ({username})\n\n"
-        f"📦 **Тип:** {data['type']}\n"
-        f"⚙️ **Изделие:** {data['itemDetails']}\n"
-    )
+app = web.Application()
+app.router.add_get("/", handle)
 
-    if data['type'] == 'Браслет':
-        order_text += (
-            f"📏 **Запястье:** {data['wrist']}\n"
-            f"🔗 **Застежка:** {data['clasp']}\n"
-            f"✨ **Разделители:** {data['spacers']}\n"
-        )
-
-    if data['type'] != 'Бусина':
-        order_text += f"🎨 **Паракорд:** {data['paracordColor']}\n"
-
-    order_text += (
-        f"✍️ **Гравировка:** {data['engraving']}\n\n"
-        f"💰 **Итого к оплате:** {data['total']} ₽"
-    )
-
-    # Отправляем тебе в личку
-    await bot.send_message(ADMIN_ID, order_text, parse_mode="Markdown")
-
-    # Отвечаем покупателю
-    await message.answer(
-        "✅ **Заказ успешно отправлен мастеру!**\n"
-        "Параметры зафиксированы. Скоро с тобой свяжутся для подтверждения деталей и оплаты.",
-        parse_mode="Markdown"
-    )
+async def start_web_server():
+    runner = web.AppRunner(app)
+    await runner.setup()
+    port = int(os.environ.get("PORT", 10000))
+    site = web.TCPSite(runner, "0.0.0.0", port)
+    await site.start()
 
 async def main():
-    await bot.delete_webhook(drop_pending_updates=True)
+    # Запускаем веб-сервер для Render в фоне
+    await start_web_server()
+    # Запускаем телеграм бота
     await dp.start_polling(bot)
 
 if __name__ == "__main__":
