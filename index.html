@@ -1,0 +1,258 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Храм Паука — Каталог</title>
+    <script src="https://telegram.org/js/telegram-web-app.js"></script>
+    <style>
+        :root {
+            --bg-color: #121212;
+            --card-bg: #1e1e1e;
+            --text-color: #f5f5f5;
+            --accent-color: #e65100;
+            --accent-hover: #ff6d00;
+            --border-color: #333;
+        }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+            background-color: var(--bg-color);
+            color: var(--text-color);
+            margin: 0;
+            padding: 16px;
+            padding-bottom: 90px;
+        }
+        h1 {
+            text-align: center;
+            font-size: 22px;
+            margin-bottom: 20px;
+            letter-spacing: 1px;
+            color: var(--accent-color);
+        }
+        .category-title {
+            font-size: 18px;
+            margin: 20px 0 10px;
+            border-bottom: 1px solid var(--border-color);
+            padding-bottom: 5px;
+        }
+        .product-card {
+            background-color: var(--card-bg);
+            border: 1px solid var(--border-color);
+            border-radius: 12px;
+            padding: 14px;
+            margin-bottom: 12px;
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+        }
+        .product-info {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+        .product-name {
+            font-weight: 600;
+            font-size: 15px;
+        }
+        .product-price {
+            color: var(--accent-color);
+            font-weight: bold;
+        }
+        .product-time {
+            font-size: 12px;
+            color: #aaa;
+        }
+        select {
+            background: #2a2a2a;
+            color: #fff;
+            border: 1px solid var(--border-color);
+            padding: 6px 10px;
+            border-radius: 6px;
+            font-size: 14px;
+            width: 100%;
+            margin-top: 6px;
+        }
+        button.add-btn {
+            background-color: var(--accent-color);
+            color: white;
+            border: none;
+            padding: 8px 16px;
+            border-radius: 8px;
+            font-weight: 600;
+            cursor: pointer;
+            margin-top: 8px;
+            align-self: flex-end;
+        }
+        button.add-btn:active {
+            background-color: var(--accent-hover);
+        }
+        .cart-bar {
+            position: fixed;
+            bottom: 0;
+            left: 0;
+            right: 0;
+            background: #1a1a1a;
+            border-top: 1px solid var(--border-color);
+            padding: 12px 16px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            box-shadow: 0 -4px 10px rgba(0,0,0,0.5);
+        }
+        .cart-total {
+            font-size: 16px;
+            font-weight: bold;
+        }
+        #checkout-btn {
+            background-color: #2e7d32;
+            color: white;
+            border: none;
+            padding: 10px 20px;
+            border-radius: 8px;
+            font-weight: bold;
+            font-size: 14px;
+            cursor: pointer;
+        }
+        #checkout-btn:disabled {
+            background-color: #444;
+            color: #888;
+            cursor: not-allowed;
+        }
+    </style>
+</head>
+<body>
+
+    <h1>🕸 ХРАМ ПАУКА</h1>
+
+    <div id="catalog-container">Загрузка каталога...</div>
+
+    <div class="cart-bar">
+        <div class="cart-total">Итого: <span id="total-price">0</span> ₽</div>
+        <button id="checkout-btn" onclick="checkout()" disabled>Оформить заказ</button>
+    </div>
+
+    <script>
+        let tg = window.Telegram.WebApp;
+        tg.expand();
+
+        let cart = [];
+        let catalogData = {};
+
+        fetch('products.json')
+            .then(response => response.json())
+            .then(data => {
+                catalogData = data;
+                renderCatalog();
+            })
+            .catch(err => {
+                document.getElementById('catalog-container').innerText = 'Ошибка загрузки каталога';
+            });
+
+        function renderCatalog() {
+            let container = document.getElementById('catalog-container');
+            container.innerHTML = '';
+
+            // Фигурные бусины
+            if (catalogData.beads && catalogData.beads.length > 0) {
+                let beadsHtml = `
+                    <div class="category-title">Фигурные бусины из металла</div>
+                    <div class="product-card">
+                        <div class="product-info">
+                            <span class="product-name">Металлическая бусина (на выбор)</span>
+                            <span class="product-price">500 ₽</span>
+                        </div>
+                        <select id="bead-select">
+                            ${catalogData.beads.map(b => `<option value="${b.name}">${b.name}</option>`).join('')}
+                        </select>
+                        <button class="add-btn" onclick="addBead()">В корзину</button>
+                    </div>
+                `;
+                container.innerHTML += beadsHtml;
+            }
+
+            // Темляки
+            if (catalogData.lanyards && catalogData.lanyards.length > 0) {
+                let lanyardsHtml = `<div class="category-title">Темляки и брелоки</div>`;
+                catalogData.lanyards.forEach(item => {
+                    lanyardsHtml += `
+                        <div class="product-card">
+                            <div class="product-info">
+                                <span class="product-name">${item.name}</span>
+                                <span class="product-price">${item.price} ₽</span>
+                            </div>
+                            <div class="product-time">Срок изготовления: ${item.time}</div>
+                            <button class="add-btn" onclick="addSimpleItem('${item.name}', ${item.price})">В корзину</button>
+                        </div>
+                    `;
+                });
+                container.innerHTML += lanyardsHtml;
+            }
+
+            // Браслеты
+            if (catalogData.bracelets && catalogData.bracelets.length > 0) {
+                let braceletsHtml = `<div class="category-title">Браслеты из паракорда</div>`;
+                catalogData.bracelets.forEach(item => {
+                    braceletsHtml += `
+                        <div class="product-card">
+                            <div class="product-info">
+                                <span class="product-name">${item.name}</span>
+                                <span class="product-price">${item.price} ₽</span>
+                            </div>
+                            <div class="product-time">Срок изготовления: ${item.time}</div>
+                            <button class="add-btn" onclick="addSimpleItem('${item.name}', ${item.price})">В корзину</button>
+                        </div>
+                    `;
+                });
+                container.innerHTML += braceletsHtml;
+            }
+
+            // Дополнительно
+            if (catalogData.extras && catalogData.extras.length > 0) {
+                let extrasHtml = `<div class="category-title">Дополнительно</div>`;
+                catalogData.extras.forEach(item => {
+                    extrasHtml += `
+                        <div class="product-card">
+                            <div class="product-info">
+                                <span class="product-name">${item.name}</span>
+                                <span class="product-price">+${item.price} ₽</span>
+                            </div>
+                            <button class="add-btn" onclick="addSimpleItem('${item.name}', ${item.price})">Добавить</button>
+                        </div>
+                    `;
+                });
+                container.innerHTML += extrasHtml;
+            }
+        }
+
+        function addBead() {
+            let select = document.getElementById('bead-select');
+            let name = `Бусина: ${select.value}`;
+            cart.push({ name: name, price: 500 });
+            updateCart();
+        }
+
+        function addSimpleItem(name, price) {
+            cart.push({ name: name, price: price });
+            updateCart();
+        }
+
+        function updateCart() {
+            let total = cart.reduce((sum, item) => sum + item.price, 0);
+            document.getElementById('total-price').innerText = total;
+            let btn = document.getElementById('checkout-btn');
+            if (cart.length > 0) {
+                btn.removeAttribute('disabled');
+            } else {
+                btn.setAttribute('disabled', 'true');
+            }
+        }
+
+        function checkout() {
+            let orderData = JSON.stringify(cart);
+            tg.sendData(orderData);
+            tg.close();
+        }
+    </script>
+</body>
+</html>
+
