@@ -270,17 +270,22 @@ def admin_delete_item(call):
     if int(call.message.chat.id) != int(ADMIN_ID):
         return
     
+    # Формат callback: admin_del_{cat_key}_{index}_{item_id}
+    # Разделяем по первому и последним частям, чтобы корректно забрать item_id
     parts = call.data.replace("admin_del_", "").split("_")
     cat_key = parts[0]
     index = int(parts[1])
-    item_id = parts[2]
+    item_id = "_".join(parts[2:]) # на случай если в самом item_id есть подчеркивания
     
     products = load_products()
     if item_id in products:
         del products[item_id]
         save_products(products)
         bot.answer_callback_query(call.id, "✅ Товар успешно удален!")
+    else:
+        bot.answer_callback_query(call.id, "❌ Товар не найден в базе.")
     
+    # Подменяем data для вызова функции отображения категории
     call.data = f"cat_{cat_key}_{index}"
     view_category_item(call)
 
@@ -301,7 +306,7 @@ def admin_edit_start(call):
     markup = telebot.types.InlineKeyboardMarkup()
     markup.add(telebot.types.InlineKeyboardButton("❌ Отмена", callback_data="catalog"))
     
-    bot.send_message(call.message.chat.id, f"✏️ [Редактирование: {item.get('name')}]\nШаг 1/3: Напиши новое название:", reply_markup=markup)
+    bot.send_message(call.message.chat.id, f"✏️ [Редактирование: {item.get('name')}]\nШаг 1/3: Напиши новое название:")
 
 @bot.callback_query_handler(func=lambda call: call.data == "skip_photo")
 def skip_photo(call):
@@ -383,7 +388,6 @@ def handle_admin_flow(message):
             save_products(products)
             cat_key = state["category"]
             
-            # Очищаем состояние ДО отправки сообщения об успехе
             if chat_id in admin_states:
                 del admin_states[chat_id]
             
