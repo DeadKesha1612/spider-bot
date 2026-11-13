@@ -5,8 +5,8 @@ from aiogram import Bot, Dispatcher, types
 from aiogram.filters import Command
 from aiohttp import web
 
-# Твои данные
-TOKEN = "9037922529:AAGw-EXAMPLE_TOKEN_HERE"  # токен твоего бота
+# Твой реальный токен
+TOKEN = "9037922529:AAFXbac00LXXVDpMaX2zK9ua2HKpQvWxCko"
 ADMIN_ID = 5393257255
 WEB_APP_URL = "https://dead-kesha.netlify.app/"
 
@@ -15,7 +15,7 @@ logging.basicConfig(level=logging.INFO)
 bot = Bot(token=TOKEN)
 dp = Dispatcher()
 
-# Хранилище заказов или базовая логика
+# Обработчик команды /start
 @dp.message(Command("start"))
 async def cmd_start(message: types.Message):
     builder = types.InlineKeyboardBuilder()
