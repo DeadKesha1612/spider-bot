@@ -50,21 +50,19 @@ def send_welcome(message):
         "Здесь ты можешь посмотреть каталог изделий, собрать заказ "
         "и отправить его прямо в чат."
     )
-    show_main_menu(message.chat.id, message.from_user.id, text)
+    show_main_menu(message.chat.id)
 
-def show_main_menu(chat_id, user_id):
+def show_main_menu(chat_id):
     markup = telebot.types.InlineKeyboardMarkup()
     markup.add(telebot.types.InlineKeyboardButton("🛍 Открыть каталог", callback_data="catalog"))
     markup.add(telebot.types.InlineKeyboardButton("🛒 Корзина", callback_data="view_cart"))
     
-    # Показываем кнопку админки, если чат принадлежит тебе (или для теста по ID)
-    if chat_id == ADMIN_ID or user_id == ADMIN_ID:
+    if chat_id == ADMIN_ID:
         markup.add(telebot.types.InlineKeyboardButton("➕ Добавить товар (Админ)", callback_data="add_product_start"))
         
     text = (
         "Приветствую! Добро пожаловать в мастерскую **Храм Паука**.\n\n"
-        "Здесь ты можешь посмотреть каталог изделий, собрать заказ "
-        "и отправить его прямо в чат."
+        "Главное меню:"
     )
     bot.send_message(chat_id, text, reply_markup=markup, parse_mode="Markdown")
 
@@ -72,19 +70,22 @@ def show_main_menu(chat_id, user_id):
 
 @bot.callback_query_handler(func=lambda call: call.data == "catalog")
 def open_catalog(call):
+    bot.answer_callback_query(call.id)
     products = load_products()
     markup = telebot.types.InlineKeyboardMarkup()
     
     if not products:
         markup.add(telebot.types.InlineKeyboardButton("🔙 Главное меню", callback_data="main_menu"))
-        bot.edit_message_text(
-            "🛍 **Каталог товаров пуст.**\nВ каталоге пока нет ни одного товара.", 
-            call.message.chat.id, 
-            call.message.message_id, 
-            reply_markup=markup, 
-            parse_mode="Markdown"
-        )
-        bot.answer_callback_query(call.id)
+        try:
+            bot.edit_message_text(
+                "🛍 **Каталог товаров пуст.**\nВ каталоге пока нет ни одного товара.", 
+                call.message.chat.id, 
+                call.message.message_id, 
+                reply_markup=markup, 
+                parse_mode="Markdown"
+            )
+        except Exception:
+            bot.send_message(call.message.chat.id, "🛍 **Каталог товаров пуст.**", reply_markup=markup, parse_mode="Markdown")
         return
 
     for item_id, item in products.items():
@@ -94,23 +95,25 @@ def open_catalog(call):
     markup.add(telebot.types.InlineKeyboardButton("🛒 Корзина / Оформить", callback_data="view_cart"))
     markup.add(telebot.types.InlineKeyboardButton("🔙 Главное меню", callback_data="main_menu"))
     
-    bot.edit_message_text(
-        "🛍 **Каталог товаров:**\nВыбери товар, чтобы посмотреть подробности и добавить в корзину:", 
-        call.message.chat.id, 
-        call.message.message_id, 
-        reply_markup=markup, 
-        parse_mode="Markdown"
-    )
-    bot.answer_callback_query(call.id)
+    try:
+        bot.edit_message_text(
+            "🛍 **Каталог товаров:**\nВыбери товар, чтобы посмотреть подробности и добавить в корзину:", 
+            call.message.chat.id, 
+            call.message.message_id, 
+            reply_markup=markup, 
+            parse_mode="Markdown"
+        )
+    except Exception:
+        bot.send_message(call.message.chat.id, "🛍 **Каталог товаров:**", reply_markup=markup, parse_mode="Markdown")
 
 @bot.callback_query_handler(func=lambda call: call.data.startswith("view_item_"))
 def view_item_card(call):
+    bot.answer_callback_query(call.id)
     item_id = call.data.replace("view_item_", "")
     products = load_products()
     item = products.get(item_id)
     
     if not item:
-        bot.answer_callback_query(call.id, "❌ Товар не найден.")
         return
 
     caption = (
@@ -133,7 +136,6 @@ def view_item_card(call):
         bot.send_photo(call.message.chat.id, item["photo"], caption=caption, reply_markup=markup, parse_mode="Markdown")
     else:
         bot.send_message(call.message.chat.id, caption, reply_markup=markup, parse_mode="Markdown")
-    bot.answer_callback_query(call.id)
 
 @bot.callback_query_handler(func=lambda call: call.data.startswith("add_"))
 def add_to_cart(call):
@@ -152,6 +154,7 @@ def add_to_cart(call):
 
 @bot.callback_query_handler(func=lambda call: call.data == "view_cart")
 def view_cart(call):
+    bot.answer_callback_query(call.id)
     chat_id = call.message.chat.id
     cart = user_carts.get(chat_id, [])
     
@@ -178,7 +181,6 @@ def view_cart(call):
         bot.edit_message_text(text, chat_id, call.message.message_id, reply_markup=markup, parse_mode="Markdown")
     except Exception:
         bot.send_message(chat_id, text, reply_markup=markup, parse_mode="Markdown")
-    bot.answer_callback_query(call.id)
 
 @bot.callback_query_handler(func=lambda call: call.data == "clear_cart")
 def clear_cart(call):
@@ -187,6 +189,7 @@ def clear_cart(call):
 
 @bot.callback_query_handler(func=lambda call: call.data == "checkout")
 def checkout_order(call):
+    bot.answer_callback_query(call.id)
     chat_id = call.message.chat.id
     cart = user_carts.get(chat_id, [])
     if not cart:
@@ -203,42 +206,40 @@ def checkout_order(call):
     bot.send_message(chat_id, order_text, parse_mode="Markdown")
     
     user_carts[chat_id] = []
-    bot.answer_callback_query(call.id)
 
 @bot.callback_query_handler(func=lambda call: call.data == "main_menu")
 def back_to_menu(call):
+    bot.answer_callback_query(call.id)
     if call.message.chat.id in admin_states:
         del admin_states[call.message.chat.id]
     try:
         bot.delete_message(call.message.chat.id, call.message.message_id)
     except Exception:
         pass
-    show_main_menu(call.message.chat.id, call.from_user.id)
-    bot.answer_callback_query(call.id)
+    show_main_menu(call.message.chat.id)
 
 # --- АДМИНКА ДЛЯ ДОБАВЛЕНИЯ ТОВАРА ---
 
 @bot.callback_query_handler(func=lambda call: call.data == "add_product_start")
 def add_product_start(call):
-    if call.message.chat.id != ADMIN_ID and call.from_user.id != ADMIN_ID:
-        bot.answer_callback_query(call.id, "❌ У тебя нет прав администратора.", show_alert=True)
+    bot.answer_callback_query(call.id)
+    if call.message.chat.id != ADMIN_ID:
         return
         
     admin_states[call.message.chat.id] = {"step": "name"}
     markup = telebot.types.InlineKeyboardMarkup()
     markup.add(telebot.types.InlineKeyboardButton("❌ Отмена", callback_data="main_menu"))
     
-    bot.edit_message_text("✍️ **Шаг 1/5:** Напиши название нового товара:", call.message.chat.id, call.message.message_id, reply_markup=markup, parse_mode="Markdown")
-    bot.answer_callback_query(call.id)
+    bot.send_message(call.message.chat.id, "✍️ **Шаг 1/5:** Напиши название нового товара:", reply_markup=markup, parse_mode="Markdown")
 
 @bot.callback_query_handler(func=lambda call: call.data == "skip_photo")
 def skip_photo(call):
+    bot.answer_callback_query(call.id)
     chat_id = call.message.chat.id
     if chat_id in admin_states and admin_states[chat_id]["step"] == "photo":
         admin_states[chat_id]["photo"] = None
         admin_states[chat_id]["step"] = "price"
-        bot.edit_message_text("💵 **Шаг 3/5:** Напиши цену товара цифрами (например: `750`):", chat_id, call.message.message_id, parse_mode="Markdown")
-    bot.answer_callback_query(call.id)
+        bot.send_message(chat_id, "💵 **Шаг 3/5:** Напиши цену товара цифрами (например: `750`):", parse_mode="Markdown")
 
 @bot.message_handler(content_types=['text', 'photo'], func=lambda message: message.chat.id in admin_states)
 def handle_admin_creation(message):
@@ -306,7 +307,7 @@ def handle_admin_creation(message):
         del admin_states[chat_id]
         
         bot.send_message(chat_id, f"🎉 **Товар успешно добавлен в каталог!**\n\n📌 {state['name']} — {state['price']} ₽", parse_mode="Markdown")
-        show_main_menu(chat_id, message.from_user.id)
+        show_main_menu(chat_id)
 
 if __name__ == '__main__':
     bot.remove_webhook()
