@@ -22,12 +22,24 @@ CATEGORIES = {
     "beads": "Бусины, фигурки"
 }
 
-# Обновленные варианты для кастомизации (застежки исправлены)
+# Варианты для кастомизации с ценами
 CUSTOM_OPTIONS = {
     "colors": ["Олива", "Койот", "Черный", "Камуфляж", "Песочный"],
-    "thickness": ["Паракорд 550 (стандарт)", "Микрокорд (тонкий)"],
+    "thickness": {
+        "Паракорд 550 (стандарт)": 550,
+        "Микрокорд (тонкий)": 400
+    },
+    "weaves": {
+        "Кобра (классика)": 0,
+        "Змейка": 50,
+        "Широкое (мощное)": 150
+    },
     "beads": ["Самурай", "Маска Онимаска", "Череп", "Без бусины"],
-    "clasps": ["Пластмассовый фастекс", "Шакл", "Винтовая застежка"]
+    "clasps": {
+        "Пластмассовый фастекс": 50,
+        "Шакл (металлический)": 100,
+        "Винтовая застежка": 70
+    }
 }
 
 def load_products():
@@ -169,10 +181,8 @@ def view_category_item(call):
         f"⏱ Срок изготовления: {time_val}"
     )
     
-    # Кнопки взаимодействия
     markup.add(telebot.types.InlineKeyboardButton("🛒 Добавить в корзину", callback_data=f"cart_add_{item_id}"))
     
-    # Кнопка кастомизации доступна для браслетов и темляков
     if cat_key in ["bracelets", "lanyards"]:
         markup.add(telebot.types.InlineKeyboardButton("🎨 Собрать свой вариант", callback_data=f"custom_start_{item_id}"))
     
@@ -212,11 +222,14 @@ def custom_start(call):
     custom_states[chat_id] = {
         "item_id": item_id,
         "base_name": item.get("name"),
-        "base_price": item.get("price", 0),
         "color": None,
         "thickness": None,
+        "thickness_price": 0,
+        "weave": None,
+        "weave_price": 0,
         "bead": None,
         "clasp": None,
+        "clasp_price": 0,
         "spacers": False
     }
     show_custom_paracord_menu(chat_id, call.message.message_id)
@@ -224,20 +237,23 @@ def custom_start(call):
 def show_custom_paracord_menu(chat_id, message_id=None):
     state = custom_states.get(chat_id, {})
     text = (
-        "🎨 **Конструктор изделия**\n\n"
+        "🎨 **Конструктор изделия** (Шаг 1: Паракорд и Плетение)\n\n"
         f"📌 Основа: {state.get('base_name')}\n"
-        f"🧵 Паракорд: Цвет: *{state.get('color') or 'Не выбран'}* | Толщина: *{state.get('thickness') or 'Не выбрана'}*\n"
+        f"🎨 Цвет шнура: *{state.get('color') or '❌ Не выбран'}*\n"
+        f"📏 Толщина шнура: *{state.get('thickness') or '❌ Не выбрана'}*\n"
+        f"🪢 Тип плетения: *{state.get('weave') or '❌ Не выбрано'}*\n"
         f"💀 Бусина: *{state.get('bead') or 'Не выбрана'}*\n"
         f"🪝 Застежка: *{state.get('clasp') or 'Не выбрана'}*\n"
         f"🔸 Разделители: *{'Да' if state.get('spacers') else 'Нет'}*\n\n"
-        "👇 Выберите параметры паракорда:"
+        "👇 Выберите параметры шнура:"
     )
     markup = telebot.types.InlineKeyboardMarkup()
     
     markup.add(telebot.types.InlineKeyboardButton("🎨 Выбрать цвет паракорда", callback_data="custom_choose_color"))
     markup.add(telebot.types.InlineKeyboardButton("📏 Выбрать толщину паракорда", callback_data="custom_choose_thick"))
+    markup.add(telebot.types.InlineKeyboardButton("🪢 Выбрать тип плетения", callback_data="custom_choose_weave"))
     
-    if state.get("color") and state.get("thickness"):
+    if state.get("color") and state.get("thickness") and state.get("weave"):
         markup.add(telebot.types.InlineKeyboardButton("➡️ Далее: Выбор бусины", callback_data="custom_step_bead"))
         
     markup.add(telebot.types.InlineKeyboardButton("❌ Отмена кастома", callback_data="catalog"))
@@ -272,18 +288,40 @@ def set_color(call):
 def custom_choose_thick(call):
     bot.answer_callback_query(call.id)
     markup = telebot.types.InlineKeyboardMarkup()
-    for thick in CUSTOM_OPTIONS["thickness"]:
-        markup.add(telebot.types.InlineKeyboardButton(thick, callback_data=f"set_thick_{thick}"))
+    for thick_name, thick_price in CUSTOM_OPTIONS["thickness"].items():
+        btn_text = f"{thick_name} — {thick_price} ₽"
+        markup.add(telebot.types.InlineKeyboardButton(btn_text, callback_data=f"set_thick_{thick_name}"))
     markup.add(telebot.types.InlineKeyboardButton("🔙 Назад", callback_data="custom_back_paracord"))
     bot.edit_message_text("📏 Выберите толщину паракорда:", call.message.chat.id, call.message.message_id, reply_markup=markup)
 
 @bot.callback_query_handler(func=lambda call: call.data.startswith("set_thick_"))
 def set_thick(call):
     bot.answer_callback_query(call.id)
-    thick = call.data.replace("set_thick_", "")
+    thick_name = call.data.replace("set_thick_", "")
     chat_id = call.message.chat.id
     if chat_id in custom_states:
-        custom_states[chat_id]["thickness"] = thick
+        custom_states[chat_id]["thickness"] = thick_name
+        custom_states[chat_id]["thickness_price"] = CUSTOM_OPTIONS["thickness"].get(thick_name, 0)
+    show_custom_paracord_menu(chat_id, call.message.message_id)
+
+@bot.callback_query_handler(func=lambda call: call.data == "custom_choose_weave")
+def custom_choose_weave(call):
+    bot.answer_callback_query(call.id)
+    markup = telebot.types.InlineKeyboardMarkup()
+    for weave_name, weave_price in CUSTOM_OPTIONS["weaves"].items():
+        price_suffix = f" (+{weave_price} ₽)" if weave_price > 0 else ""
+        markup.add(telebot.types.InlineKeyboardButton(f"{weave_name}{price_suffix}", callback_data=f"set_weave_{weave_name}"))
+    markup.add(telebot.types.InlineKeyboardButton("🔙 Назад", callback_data="custom_back_paracord"))
+    bot.edit_message_text("🪢 Выберите тип плетения:", call.message.chat.id, call.message.message_id, reply_markup=markup)
+
+@bot.callback_query_handler(func=lambda call: call.data.startswith("set_weave_"))
+def set_weave(call):
+    bot.answer_callback_query(call.id)
+    weave_name = call.data.replace("set_weave_", "")
+    chat_id = call.message.chat.id
+    if chat_id in custom_states:
+        custom_states[chat_id]["weave"] = weave_name
+        custom_states[chat_id]["weave_price"] = CUSTOM_OPTIONS["weaves"].get(weave_name, 0)
     show_custom_paracord_menu(chat_id, call.message.message_id)
 
 @bot.callback_query_handler(func=lambda call: call.data == "custom_back_paracord")
@@ -301,7 +339,8 @@ def custom_step_bead(call):
     text = (
         "🎨 **Конструктор изделия** (Шаг 2: Бусина)\n\n"
         f"🧵 Паракорд: {state.get('color')} / {state.get('thickness')}\n"
-        f"💀 Бусина: *{state.get('bead') or 'Не выбрана'}*\n\n"
+        f"🪢 Плетение: {state.get('weave')}\n"
+        f"💀 Центральная бусина: *{state.get('bead') or '❌ Не выбрана'}*\n\n"
         "👇 Выберите центральную бусину:"
     )
     markup = telebot.types.InlineKeyboardMarkup()
@@ -338,13 +377,15 @@ def custom_step_clasp(call):
     text = (
         "🎨 **Конструктор изделия** (Шаг 3: Застежка)\n\n"
         f"🧵 Паракорд: {state.get('color')} / {state.get('thickness')}\n"
+        f"🪢 Плетение: {state.get('weave')}\n"
         f"💀 Бусина: {state.get('bead')}\n"
-        f"🪝 Застежка: *{state.get('clasp') or 'Не выбрана'}*\n\n"
+        f"🪝 Застежка: *{state.get('clasp') or '❌ Не выбрана'}*\n\n"
         "👇 Выберите застежку:"
     )
     markup = telebot.types.InlineKeyboardMarkup()
-    for clasp in CUSTOM_OPTIONS["clasps"]:
-        markup.add(telebot.types.InlineKeyboardButton(clasp, callback_data=f"set_clasp_{clasp}"))
+    for clasp_name, clasp_price in CUSTOM_OPTIONS["clasps"].items():
+        btn_text = f"{clasp_name} (+{clasp_price} ₽)"
+        markup.add(telebot.types.InlineKeyboardButton(btn_text, callback_data=f"set_clasp_{clasp_name}"))
         
     markup.add(
         telebot.types.InlineKeyboardButton("⬅️ Назад к бусине", callback_data="custom_step_bead"),
@@ -355,13 +396,14 @@ def custom_step_clasp(call):
 @bot.callback_query_handler(func=lambda call: call.data.startswith("set_clasp_"))
 def set_clasp(call):
     bot.answer_callback_query(call.id)
-    clasp = call.data.replace("set_clasp_", "")
+    clasp_name = call.data.replace("set_clasp_", "")
     chat_id = call.message.chat.id
     if chat_id in custom_states:
-        custom_states[chat_id]["clasp"] = clasp
+        custom_states[chat_id]["clasp"] = clasp_name
+        custom_states[chat_id]["clasp_price"] = CUSTOM_OPTIONS["clasps"].get(clasp_name, 0)
     custom_step_clasp(call)
 
-# ШАГ 4: ИТОГ, РАЗДЕЛИТЕЛИ И КОРЗИНА
+# ШАГ 4: СУПЕР-НАГЛЯДНЫЙ ИТОГ, РАЗДЕЛИТЕЛИ И КОРЗИНА
 @bot.callback_query_handler(func=lambda call: call.data in ["custom_step_summary", "custom_toggle_spacers"])
 def custom_step_summary(call):
     bot.answer_callback_query(call.id)
@@ -371,25 +413,33 @@ def custom_step_summary(call):
     if call.data == "custom_toggle_spacers":
         state["spacers"] = not state.get("spacers", False)
         
-    spacers_text = "Да (+100 ₽)" if state.get("spacers") else "Нет"
-    extra_price = 100 if state.get("spacers") else 0
-    total_price = state.get("base_price", 0) + extra_price
+    spacers_text = "Да — красивые бусины по бокам (+100 ₽)" if state.get("spacers") else "Нет (чистый вид)"
+    extra_spacers_price = 100 if state.get("spacers") else 0
+    thick_price = state.get("thickness_price", 0)
+    weave_price = state.get("weave_price", 0)
+    clasp_price = state.get("clasp_price", 0)
+    
+    total_price = thick_price + weave_price + clasp_price + extra_spacers_price
     state["final_price"] = total_price
     
     text = (
-        "✅ **Ваш кастомный заказ собран!**\n\n"
-        f"📌 Изделие: {state.get('base_name')}\n"
-        f"🎨 Цвет: {state.get('color') or 'Не выбран'}\n"
-        f"📏 Толщина: {state.get('thickness') or 'Не выбрана'}\n"
-        f"💀 Бусина: {state.get('bead') or 'Не выбрана'}\n"
-        f"🪝 Застежка: {state.get('clasp') or 'Не выбрана'}\n"
-        f"🔸 Бусины-разделители: {spacers_text}\n\n"
-        f"💰 **Итоговая стоимость:** {total_price} ₽\n\n"
-        "Вы можете вернуться к любому шагу для изменения или добавить товар в корзину:"
+        "🔥 **ВАШ СОБРАННЫЙ КАСТОМНЫЙ КОМПЛЕКТ** 🔥\n"
+        "Внимательно проверьте каждую деталь — именно так будет выглядеть ваше готовое изделие:\n\n"
+        f"🏷 **Основа каталога:** {state.get('base_name')}\n"
+        f"━━━━━━━━━━━━━━━━━━━\n"
+        f"🎨 **Цвет паракорда:** {state.get('color') or 'Не указан'}\n"
+        f"📏 **Толщина шнура:** {state.get('thickness') or 'Не указана'} — *{thick_price} ₽*\n"
+        f"🪢 **Тип плетения:** {state.get('weave') or 'Не указано'}" + (f" — *+{weave_price} ₽*" if weave_price > 0 else " — *входит в базу*") + "\n"
+        f"💀 **Центральная бусина:** {state.get('bead') or 'Без бусины'}\n"
+        f"🪝 **Тип застежки:** {state.get('clasp') or 'Не указана'} — *+{clasp_price} ₽*\n"
+        f"🔸 **Бусины-разделители:** {spacers_text}\n"
+        f"━━━━━━━━━━━━━━━━━━━\n"
+        f"💰 **ИТОГОВАЯ СТОИМОСТЬ:** *{total_price} ₽*\n\.n"
+        "💡 *Всё верно? Нажимайте «Добавить в корзину» или измените любую деталь кнопками ниже:*"
     )
     
     markup = telebot.types.InlineKeyboardMarkup()
-    markup.add(telebot.types.InlineKeyboardButton("🔄 Изменить паракорд", callback_data=f"custom_start_{state.get('item_id')}"))
+    markup.add(telebot.types.InlineKeyboardButton("🔄 Изменить паракорд / плетение", callback_data=f"custom_start_{state.get('item_id')}"))
     markup.add(telebot.types.InlineKeyboardButton("🔄 Изменить бусину", callback_data="custom_step_bead"))
     markup.add(telebot.types.InlineKeyboardButton("🔄 Изменить застежку", callback_data="custom_step_clasp"))
     
@@ -410,9 +460,9 @@ def custom_add_to_cart(call):
         return
         
     custom_item = {
-        "name": f"[Кастом] {state.get('base_name')} ({state.get('color')}, {state.get('bead')}, {state.get('clasp')})",
-        "price": state.get("final_price", state.get("base_price", 0)),
-        "material": f"Паракорд: {state.get('color')} ({state.get('thickness')}), Бусина: {state.get('bead')}, Застежка: {state.get('clasp')}, Разделители: {'Да' if state.get('spacers') else 'Нет'}",
+        "name": f"[Кастом] {state.get('base_name')} ({state.get('color')}, {state.get('weave')}, {state.get('bead')}, {state.get('clasp')})",
+        "price": state.get("final_price", 0),
+        "material": f"Цвет: {state.get('color')}, Толщина: {state.get('thickness')}, Плетение: {state.get('weave')}, Бусина: {state.get('bead')}, Застежка: {state.get('clasp')}, Разделители: {'Да' if state.get('spacers') else 'Нет'}",
         "time": "2-3 дня"
     }
     
@@ -461,6 +511,8 @@ def view_cart(call):
             name = item.get('name', 'Товар')
             price = item.get('price', 0)
             text += f"{idx + 1}. {name} — {price} ₽\n"
+            if item.get('material'):
+                text += f"   └ _{item.get('material')}_\n"
             total += price
         text += f"\n💰 Итого: {total} ₽"
         
@@ -469,7 +521,7 @@ def view_cart(call):
         markup.add(telebot.types.InlineKeyboardButton("🛍 Продолжить покупки", callback_data="catalog"))
         
     markup.add(telebot.types.InlineKeyboardButton("🔙 Главное меню", callback_data="main_menu"))
-    bot.send_message(chat_id, text, reply_markup=markup)
+    bot.send_message(chat_id, text, parse_mode="Markdown", reply_markup=markup)
 
 @bot.callback_query_handler(func=lambda call: call.data == "clear_cart")
 def clear_cart(call):
@@ -490,6 +542,8 @@ def checkout_order(call):
         name = item.get('name', 'Товар')
         price = item.get('price', 0)
         order_text += f"• {name} — {price} ₽\n"
+        if item.get('material'):
+            order_text += f"   └ _{item.get('material')}_\n"
         total += price
     order_text += f"\n💰 **Сумма:** {total} ₽"
     
