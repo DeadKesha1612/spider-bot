@@ -35,12 +35,14 @@ def home():
 
 @app.route(f'/{TOKEN}', methods=['POST'])
 def webhook():
-    if request.headers.get('content-type') == 'application/json':
+    content_type = request.headers.get('content-type', '')
+    if 'application/json' in content_type:
         json_string = request.get_data().decode('utf-8')
         update = telebot.types.Update.de_json(json_string)
         bot.process_new_updates([update])
         return '', 200
     else:
+        print(f"Rejected request with content-type: {content_type}")
         return 'Forbidden', 403
 
 @bot.message_handler(commands=['start'])
@@ -72,34 +74,44 @@ def show_main_menu(chat_id):
 def open_catalog(call):
     print("CALLBACK: Нажали 'Открыть каталог'")
     bot.answer_callback_query(call.id)
-    products = load_products()
-    print(f"Загруженные товары: {products}")
-    
-    markup = telebot.types.InlineKeyboardMarkup()
     
     try:
-        bot.delete_message(call.message.chat.id, call.message.message_id)
-    except Exception as e:
-        print(f"Не удалось удалить старое сообщение: {e}")
-    
-    if not products:
-        markup.add(telebot.types.InlineKeyboardButton("🔙 Главное меню", callback_data="main_menu"))
-        bot.send_message(call.message.chat.id, "🛍 Каталог товаров пуст.\nВ каталоге пока нет ни одного товара.", reply_markup=markup)
-        return
+        products = load_products()
+        print(f"Загруженные товары: {products}")
+        
+        markup = telebot.types.InlineKeyboardMarkup()
+        
+        try:
+            bot.delete_message(call.message.chat.id, call.message.message_id)
+        except Exception as e:
+            print(f"Не удалось удалить старое сообщение: {e}")
+        
+        if not products:
+            markup.add(telebot.types.InlineKeyboardButton("🔙 Главное меню", callback_data="main_menu"))
+            bot.send_message(call.message.chat.id, "🛍 Каталог товаров пуст.\nВ каталоге пока нет ни одного товара.", reply_markup=markup)
+            return
 
-    for item_id, item in products.items():
-        btn_text = f"{item['name']} — {item['price']} ₽"
-        markup.add(telebot.types.InlineKeyboardButton(btn_text, callback_data=f"view_item_{item_id}"))
-            
-    markup.add(telebot.types.InlineKeyboardButton("🛒 Корзина / Оформить", callback_data="view_cart"))
-    markup.add(telebot.types.InlineKeyboardButton("🔙 Главное меню", callback_data="main_menu"))
-    
-    bot.send_message(
-        call.message.chat.id, 
-        "🛍 Каталог товаров:\nВыбери товар, чтобы посмотреть подробности и добавить в корзину:", 
-        reply_markup=markup
-    )
-    print("Каталог успешно отправлен пользователю.")
+        for item_id, item in products.items():
+            name = item.get('name', 'Товар')
+            price = item.get('price', 0)
+            btn_text = f"{name} — {price} ₽"
+            markup.add(telebot.types.InlineKeyboardButton(btn_text, callback_data=f"view_item_{item_id}"))
+                
+        markup.add(telebot.types.InlineKeyboardButton("🛒 Корзина / Оформить", callback_data="view_cart"))
+        markup.add(telebot.types.InlineKeyboardButton("🔙 Главное меню", callback_data="main_menu"))
+        
+        bot.send_message(
+            call.message.chat.id, 
+            "🛍 Каталог товаров:\nВыбери товар, чтобы посмотреть подробности и добавить в корзину:", 
+            reply_markup=markup
+        )
+        print("Каталог успешно отправлен пользователю.")
+        
+    except Exception as e:
+        print(f"ОШИБКА в open_catalog: {e}")
+        markup = telebot.types.InlineKeyboardMarkup()
+        markup.add(telebot.types.InlineKeyboardButton("🔙 Главное меню", callback_data="main_menu"))
+        bot.send_message(call.message.chat.id, "❌ Произошла ошибка при загрузке каталога. Возвращаю в меню.", reply_markup=markup)
 
 @bot.callback_query_handler(func=lambda call: call.data.startswith("view_item_"))
 def view_item_card(call):
@@ -112,11 +124,16 @@ def view_item_card(call):
         bot.answer_callback_query(call.id, "❌ Товар не найден.")
         return
 
+    name = item.get('name', 'Товар')
+    price = item.get('price', 0)
+    material = item.get('material', 'Не указан')
+    time_val = item.get('time', 'Не указан')
+
     caption = (
-        f"📌 {item['name']}\n\n"
-        f"💵 Цена: {item['price']} ₽\n"
-        f"🧵 Материал: {item['material']}\n"
-        f"⏱ Срок изготовления: {item['time']}"
+        f"📌 {name}\n\n"
+        f"💵 Цена: {price} ₽\n"
+        f"🧵 Материал: {material}\n"
+        f"⏱ Срок изготовления: {time_val}"
     )
     
     markup = telebot.types.InlineKeyboardMarkup()
@@ -144,7 +161,7 @@ def add_to_cart(call):
         if chat_id not in user_carts:
             user_carts[chat_id] = []
         user_carts[chat_id].append(item)
-        bot.answer_callback_query(call.id, f"✅ Добавлено: {item['name']}")
+        bot.answer_callback_query(call.id, f"✅ Добавлено: {item.get('name', 'Товар')}")
     else:
         bot.answer_callback_query(call.id, "❌ Товар не найден.")
 
@@ -168,8 +185,10 @@ def view_cart(call):
         text = "🛒 Ваш заказ:\n\n"
         total = 0
         for idx, item in enumerate(cart):
-            text += f"{idx + 1}. {item['name']} — {item['price']} ₽\n"
-            total += item['price']
+            name = item.get('name', 'Товар')
+            price = item.get('price', 0)
+            text += f"{idx + 1}. {name} — {price} ₽\n"
+            total += price
         text += f"\n💰 Итого: {total} ₽"
         
         markup.add(telebot.types.InlineKeyboardButton("🚀 Оформить заказ", callback_data="checkout"))
@@ -195,8 +214,10 @@ def checkout_order(call):
     order_text = f"🚨 НОВЫЙ ЗАКАЗ ИЗ ЧАТА!\n(ID клиента: `{chat_id}`)\n\n"
     total = 0
     for item in cart:
-        order_text += f"• {item['name']} — {item['price']} ₽\n"
-        total += item['price']
+        name = item.get('name', 'Товар')
+        price = item.get('price', 0)
+        order_text += f"• {name} — {price} ₽\n"
+        total += price
     order_text += f"\n💰 Сумма: {total} ₽"
     
     bot.send_message(chat_id, "✅ Заказ успешно оформлен! Спасибо, что выбрали «Храм Паука»!")
