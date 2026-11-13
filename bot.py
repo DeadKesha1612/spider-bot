@@ -53,7 +53,6 @@ def show_main_menu(chat_id):
     markup.add(telebot.types.InlineKeyboardButton("🛒 Корзина", callback_data="view_cart"))
     
     if chat_id == ADMIN_ID:
-        # Изменили callback_data, чтобы он не пересекался с корзиной
         markup.add(telebot.types.InlineKeyboardButton("➕ Добавить товар (Админ)", callback_data="admin_new_product"))
         
     text = (
@@ -133,7 +132,7 @@ def view_item_card(call):
     else:
         bot.send_message(call.message.chat.id, caption, reply_markup=markup, parse_mode="Markdown")
 
-@bot.callback_query_handler(func=lambda call: call.data.startswith("add_"))
+@bot.callback_query_handler(func=lambda call: call.data.startswith("add_") and not call.data.startswith("admin"))
 def add_to_cart(call):
     item_id = call.data.replace("add_", "")
     products = load_products()
@@ -259,13 +258,18 @@ def handle_admin_creation(message):
         
     elif step == "photo":
         if message.photo:
+            # Берем самое качественное фото
             state["photo"] = message.photo[-1].file_id
         else:
             state["photo"] = None
+            
         state["step"] = "price"
         bot.send_message(chat_id, "💵 **Шаг 3/5:** Напиши цену товара цифрами (например: `750`):", parse_mode="Markdown")
         
     elif step == "price":
+        if not message.text:
+            bot.send_message(chat_id, "❌ Введи цену цифрами:")
+            return
         try:
             price = int(message.text.strip())
             state["price"] = price
