@@ -35,10 +35,17 @@ def load_products():
 
 def save_products(data):
     try:
-        with open(PRODUCTS_FILE, "w", encoding="utf-8") as f:
+        # Сначала пишем во временный файл, чтобы не повредить основной при сбое
+        temp_file = PRODUCTS_FILE + ".tmp"
+        with open(temp_file, "w", encoding="utf-8") as f:
             json.dump(data, f, ensure_ascii=False, indent=4)
+        os.replace(temp_file, PRODUCTS_FILE)
     except Exception as e:
         print(f"Ошибка сохранения products.json: {e}")
+
+# Проверяем и инициализируем файл базы при старте
+if not os.path.exists(PRODUCTS_FILE):
+    save_products({})
 
 @app.route('/')
 def home():
@@ -99,7 +106,7 @@ def view_category_item(call):
     products = load_products()
     cat_items = []
     for item_id, item in products.items():
-        if isinstance(item, dict) and item.get("category") == cat_key:
+        if isinstance(item, dict) and str(item.get("category")).strip() == str(cat_key).strip():
             cat_items.append((item_id, item))
     
     markup = telebot.types.InlineKeyboardMarkup()
@@ -109,14 +116,12 @@ def view_category_item(call):
     if not cat_items:
         text = f"📁 Категория: *{CATEGORIES.get(cat_key, 'Товары')}*\n\nВ этой категории пока нет товаров."
         
-        # Кнопки навигации Назад / Вперед
         nav_buttons = [
             telebot.types.InlineKeyboardButton("⬅️ Назад", callback_data=f"cat_{cat_key}_0"),
             telebot.types.InlineKeyboardButton("Вперед ➡️", callback_data=f"cat_{cat_key}_0")
         ]
         markup.row(*nav_buttons)
         
-        # Кнопка добавления только для админа
         if is_admin:
             markup.add(telebot.types.InlineKeyboardButton("➕ Добавить товар", callback_data=f"admin_add_{cat_key}"))
             
