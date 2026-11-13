@@ -205,6 +205,10 @@
                 container.innerHTML += braceletsHtml;
             }
 
+            if, (catalogData.extras && catalogData.extras.length > 0) { // исправлено
+            // (оставим чистый блок ниже)
+        }
+
             if (catalogData.extras && catalogData.extras.length > 0) {
                 let extrasHtml = `<div class="category-title">Дополнительно</div>`;
                 catalogData.extras.forEach(item => {
@@ -246,9 +250,16 @@
         }
 
         function checkout() {
+            if (cart.length === 0) return;
+            
             let orderData = JSON.stringify(cart);
-            tg.sendData(orderData);
-            tg.close();
+            
+            if (window.Telegram && window.Telegram.WebApp) {
+                tg.sendData(orderData);
+                tg.close();
+            } else {
+                alert("Ошибка: каталог открыт вне Telegram!");
+            }
         }
     </script>
 </body>
