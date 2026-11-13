@@ -312,19 +312,9 @@ def skip_photo(call):
         admin_states[chat_id]["step"] = "price"
         bot.send_message(chat_id, "💵 Шаг 3/5: Напиши цену товара цифрами (например: 750):")
 
-@bot.message_handler(content_types=['photo'], func=lambda message: message.chat.id in admin_states and admin_states[message.chat.id].get("step") == "photo")
-def handle_admin_photo(message):
-    if int(message.chat.id) != int(ADMIN_ID):
-        return
-    chat_id = message.chat.id
-    state = admin_states[chat_id]
-    
-    state["photo"] = message.photo[-1].file_id if message.photo else None
-    state["step"] = "price"
-    bot.send_message(chat_id, "💵 Шаг 3/5: Напиши цену цифрами (например: 600):")
-
-@bot.message_handler(content_types=['text'], func=lambda message: message.chat.id in admin_states)
-def handle_admin_text(message):
+# УНИВЕРСАЛЬНЫЙ ЕДИНЫЙ ОБРАБОТЧИК ВВОДА (ТЕКСТ + ФОТО)
+@bot.message_handler(content_types=['text', 'photo'], func=lambda message: message.chat.id in admin_states)
+def handle_admin_flow(message):
     if int(message.chat.id) != int(ADMIN_ID):
         return
         
@@ -346,11 +336,18 @@ def handle_admin_text(message):
             return
             
         elif step == "photo":
-            # Если на шаге фото прислали текст вместо картинки
-            bot.send_message(chat_id, "🖼 Пожалуйста, отправь фото товара или нажми «Пропустить фото»:")
+            if message.photo:
+                state["photo"] = message.photo[-1].file_id
+                state["step"] = "price"
+                bot.send_message(chat_id, "💵 Шаг 3/5: Напиши цену цифрами (например: 600):")
+            else:
+                bot.send_message(chat_id, "🖼 Пожалуйста, отправь фото товара или нажми кнопку «Пропустить фото»:")
             return
             
         elif step == "price":
+            if not message.text:
+                bot.send_message(chat_id, "❌ Цена должна быть числом:")
+                return
             try:
                 state["price"] = int(message.text.strip())
                 state["step"] = "material"
