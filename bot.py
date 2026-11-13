@@ -9,24 +9,24 @@ bot = telebot.TeleBot(TOKEN)
 app = Flask(__name__)
 WEBHOOK_URL = f"https://thespidertemplebot.onrender.com/{TOKEN}"
 
-# Файл для хранения товаров прямо на сервере
+# Файл для хранения товаров на сервере Render
 PRODUCTS_FILE = "products.json"
 
-# Временное хранилище корзин пользователей (в памяти)
+# Временное хранилище корзин пользователей в памяти
 user_carts = {}
-# Состояние для добавления товара админом
+# Состояние для пошагового добавления товаров админом
 admin_states = {}
 
 def load_products():
     if os.path.exists(PRODUCTS_FILE):
         with open(PRODUCTS_FILE, "r", encoding="utf-8") as f:
             return json.load(f)
-    # Дефолтные товары, если файла нет
+    # Базовые товары по умолчанию, если файла еще нет
     return {
-        "lanyards": [
+        "Темляки и брелоки": [
             {"id": "l1", "name": "Темляк 'Самурай'", "price": 450, "time": "1-2 дня"}
         ],
-        "bracelets": [
+        "Браслеты из паракорда": [
             {"id": "b1", "name": "Браслет 'Кобра'", "price": 600, "time": "1 день"}
         ]
     }
@@ -37,7 +37,7 @@ def save_products(data):
 
 @app.route('/')
 def home():
-    return "Hram Pauka Bot with inline catalog is running!"
+    return "Hram Pauka Bot is running strictly in-chat!"
 
 @app.route(f'/{TOKEN}', methods=['POST'])
 def webhook():
@@ -52,7 +52,12 @@ def webhook():
 @bot.message_handler(commands=['start'])
 def send_welcome(message):
     user_carts[message.chat.id] = []
-    show_main_menu(message.chat.id, "Привет! Добро пожаловать в мастерскую **Храм Паука**.\nВыбери действие:")
+    text = (
+        "Приветствую! Добро пожаловать в мастерскую **Храм Паука**.\n\n"
+        "Здесь ты можешь посмотреть каталог изделий, собрать заказ "
+        "и отправить его прямо в чат."
+    )
+    show_main_menu(message.chat.id, text)
 
 def show_main_menu(chat_id, text):
     markup = telebot.types.InlineKeyboardMarkup()
@@ -77,8 +82,13 @@ def open_catalog(call):
     markup.add(telebot.types.InlineKeyboardButton("🛒 В корзину / Оформить", callback_data="view_cart"))
     markup.add(telebot.types.InlineKeyboardButton("🔙 Главное меню", callback_data="main_menu"))
     
-    bot.edit_message_text("🛍 **Каталог товаров:**\nНажми на товар, чтобы добавить его в корзину:", 
-                          call.message.chat.id, call.message.message_id, reply_markup=markup, parse_mode="Markdown")
+    bot.edit_message_text(
+        "🛍 **Каталог товаров:**\nНажми на товар, чтобы добавить его в корзину:", 
+        call.message.chat.id, 
+        call.message.message_id, 
+        reply_markup=markup, 
+        parse_mode="Markdown"
+    )
 
 @bot.callback_query_handler(func=lambda call: call.data.startswith("add_"))
 def add_to_cart(call):
@@ -138,18 +148,18 @@ def checkout_order(call):
     if not cart:
         return
         
-    order_text = f"🚨 **НОВЫЙ ЗАКАЗ ОТ ПОЛЬЗОВАТЕЛЯ!**\n(ID: `{chat_id}`)\n\n"
+    order_text = f"🚨 **НОВЫЙ ЗАКАЗ ИЗ ЧАТА!**\n(ID клиента: `{chat_id}`)\n\n"
     total = 0
     for item in cart:
         order_text += f"• {item['name']} — {item['price']} ₽\n"
         total += item['price']
-    order_text += f"\n💰 **Сумма:** {total} П"
+    order_text += f"\n💰 **Сумма:** {total} ₽"
     
-    # Отправляем заказ тебе (в этот же чат или админу)
-    bot.send_message(chat_id, f"✅ **Заказ успешно оформлен!** Скоро с тобой свяжутся.\nСпасибо, что выбрали «Храм Паука»!", parse_mode="Markdown")
-    bot.send_message(chat_id, order_text, parse_mode="Markdown") # Себе в чат
+    # Отправляем подтверждение клиенту и копию заказа тебе в чат
+    bot.send_message(chat_id, "✅ **Заказ успешно оформлен!** Спасибо, что выбрали «Храм Паука»!", parse_mode="Markdown")
+    bot.send_message(chat_id, order_text, parse_mode="Markdown")
     
-    user_carts[chat_id] = [] # Очищаем корзину
+    user_carts[chat_id] = []
 
 @bot.callback_query_handler(func=lambda call: call.data == "main_menu")
 def back_to_menu(call):
@@ -160,21 +170,22 @@ def back_to_menu(call):
 def noop(call):
     bot.answer_callback_query(call.id)
 
-# --- ДОБАВЛЕНИЕ ТОВАРОВ ИЗ ЧАТА (АДМИНКА) ---
+# --- АДМИНКА: ДОБАВЛЕНИЕ ТОВАРОВ ИЗ ЧАТА ---
 
 @bot.callback_query_handler(func=lambda call: call.data == "add_product_start")
 def add_product_start(call):
     admin_states[call.message.chat.id] = {"step": "category"}
     markup = telebot.types.InlineKeyboardMarkup()
-    markup.add(telebot.types.InlineKeyboardButton("Темляки (lanyards)", callback_data="cat_lanyards"))
-    markup.add(telebot.types.InlineKeyboardButton("Браслеты (bracelets)", callback_data="cat_bracelets"))
+    markup.add(telebot.types.InlineKeyboardButton("Темляки и брелоки", callback_data="cat_lanyards"))
+    markup.add(telebot.types.InlineKeyboardButton("Браслеты из паракорда", callback_data="cat_bracelets"))
     markup.add(telebot.types.InlineKeyboardButton("❌ Отмена", callback_data="main_menu"))
-    bot.edit_message_text("📁 Выбери категорию, куда добавить новый товар:", call.message.chat.id, call.message.message_id, reply_markup=markup)
+    bot.edit_message_text("📁 Выбери категорию для нового товара:", call.message.chat.id, call.message.message_id, reply_markup=markup)
 
 @bot.callback_query_handler(func=lambda call: call.data.startswith("cat_"))
 def add_product_cat(call):
-    cat = call.data.replace("cat_", "")
-    admin_states[call.message.chat.id] = {"step": "name", "category": cat}
+    cat_key = call.data.replace("cat_", "")
+    cat_name = "Темляки и брелоки" if cat_key == "lanyards" else "Браслеты из паракорда"
+    admin_states[call.message.chat.id] = {"step": "name", "category": cat_name}
     bot.edit_message_text("✍️ Напиши **название** нового товара ответным сообщением:", call.message.chat.id, call.message.message_id, parse_mode="Markdown")
 
 @bot.message_handler(func=lambda message: message.chat.id in admin_states)
@@ -199,11 +210,10 @@ def handle_admin_input(message):
     elif state["step"] == "time":
         state["time"] = message.text.strip()
         
-        # Сохраняем товар
         products = load_products()
         cat = state["category"]
         
-        new_id = f"item_{len(products.get(cat, [])) + 1}_{int(os.urandom(2).hex(), 16)}_"
+        new_id = f"item_{len(products.get(cat, [])) + 1}_{int(os.urandom(2).hex(), 16)}"
         new_item = {
             "id": new_id,
             "name": state["name"],
@@ -217,7 +227,7 @@ def handle_admin_input(message):
         save_products(products)
         
         del admin_states[chat_id]
-        bot.send_message(chat_id, f"🎉 **Товар успешно добавлен в каталог!**\n\n📌 Название: {new_item['name']}\n💵 Цена: {new_item['price']} ₽\n⏱ Срок: {new_item['time']}", parse_mode="Markdown")
+        bot.send_message(chat_id, f"🎉 **Товар успешно добавлен!**\n\n📌 Название: {new_item['name']}\n💵 Цена: {new_item['price']} ₽\n⏱ Срок: {new_item['time']}", parse_mode="Markdown")
         show_main_menu(chat_id, "Главное меню:")
 
 if __name__ == '__main__':
