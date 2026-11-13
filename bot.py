@@ -10,11 +10,14 @@ app = Flask(__name__)
 WEBHOOK_URL = f"https://thespidertemplebot.onrender.com/{TOKEN}"
 
 ADMIN_ID = 5393257255
-PRODUCTS_FILE = "products.json"
+
+# Указываем абсолютный путь к файлу базы, чтобы Render сохранял его надежнее
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+PRODUCTS_FILE = os.path.join(BASE_DIR, "products.json")
 
 user_carts = {}
 admin_states = {}
-custom_states = {}  # Хранит состояние кастомизации для каждого пользователя
+custom_states = {}
 
 CATEGORIES = {
     "bracelets": "Браслеты",
@@ -22,7 +25,6 @@ CATEGORIES = {
     "beads": "Бусины, фигурки"
 }
 
-# Варианты для кастомизации с ценами
 CUSTOM_OPTIONS = {
     "colors": ["Олива", "Койот", "Черный", "Камуфляж", "Песочный"],
     "thickness": {
@@ -97,9 +99,22 @@ def send_backup(message):
         return
     if os.path.exists(PRODUCTS_FILE):
         with open(PRODUCTS_FILE, "rb") as f:
-            bot.send_document(message.chat.id, f, caption="📦 Твой актуальный файл базы товаров (products.json)")
+            bot.send_document(message.chat.id, f, caption="📦 Твой актуальный файл базы товаров (products.json). Сохрани его на случай перезагрузки сервера!")
     else:
         bot.send_message(message.chat.id, "❌ Файл products.json пока пуст или не найден.")
+
+# Обработчик для восстановления базы через отправку файла администратором
+@bot.message_handler(content_types=['document'], func=lambda message: int(message.chat.id) == int(ADMIN_ID))
+def restore_backup(message):
+    if message.document.file_name and "products.json" in message.document.file_name:
+        try:
+            file_info = bot.get_file(message.document.file_id)
+            downloaded_file = bot.download_file(file_info.file_path)
+            with open(PRODUCTS_FILE, "wb") as f:
+                f.write(downloaded_file)
+            bot.send_message(message.chat.id, "✅ База товаров успешно восстановлена из отправленного файла!")
+        except Exception as e:
+            bot.send_message(message.chat.id, f"❌ Ошибка при восстановлении базы: {e}")
 
 def show_main_menu(chat_id):
     markup = telebot.types.InlineKeyboardMarkup()
@@ -434,7 +449,7 @@ def custom_step_summary(call):
         f"🪝 **Тип застежки:** {state.get('clasp') or 'Не указана'} — *+{clasp_price} ₽*\n"
         f"🔸 **Бусины-разделители:** {spacers_text}\n"
         f"━━━━━━━━━━━━━━━━━━━\n"
-        f"💰 **ИТОГОВАЯ СТОИМОСТЬ:** *{total_price} ₽*\n\.n"
+        f"💰 **ИТОГОВАЯ СТОИМОСТЬ:** *{total_price} ₽*\n\n"
         "💡 *Всё верно? Нажимайте «Добавить в корзину» или измените любую деталь кнопками ниже:*"
     )
     
@@ -521,7 +536,7 @@ def view_cart(call):
         markup.add(telebot.types.InlineKeyboardButton("🛍 Продолжить покупки", callback_data="catalog"))
         
     markup.add(telebot.types.InlineKeyboardButton("🔙 Главное меню", callback_data="main_menu"))
-    bot.send_message(chat_id, text, parse_mode="Markdown", reply_markup=markup)
+    bot.send_message(chat_id, text, reply_markup=markup)
 
 @bot.callback_query_handler(func=lambda call: call.data == "clear_cart")
 def clear_cart(call):
@@ -722,11 +737,17 @@ def handle_admin_flow(message):
             
         elif step == "price":
             try:
-                state["new_price"] = int(message.text.strip())
+                state["new_price"] = int(message.text.script() if hasattr(message.text, 'script') else int(message.text.strip()))
                 state["step"] = "material"
                 bot.send_message(chat_id, f"🧵 Шаг 3/3: Укажи новый материал (текущий: {item.get('material')}):")
             except ValueError:
-                bot.send_message(chat_id, "❌ Цена должна быть числом. Повтори ввод:")
+                # Фикс на случай опечатки в оригинале
+                try:
+                    state["new_price"] = int(message.text.strip())
+                    state["step"] = "material"
+                    bot.send_message(chat_id, f"🧵 Шаг 3/3: Укажи новый материал (текущий: {item.get('material')}):")
+                except ValueError:
+                    bot.send_message(chat_id, "❌ Цена должна быть числом. Повтори ввод:")
             return
                 
         elif step == "material":
