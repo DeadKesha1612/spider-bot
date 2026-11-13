@@ -312,7 +312,6 @@ def skip_photo(call):
         admin_states[chat_id]["step"] = "price"
         bot.send_message(chat_id, "💵 Шаг 3/5: Напиши цену товара цифрами (например: 750):")
 
-# УНИВЕРСАЛЬНЫЙ ЕДИНЫЙ ОБРАБОТЧИК ВВОДА (ТЕКСТ + ФОТО)
 @bot.message_handler(content_types=['text', 'photo'], func=lambda message: message.chat.id in admin_states)
 def handle_admin_flow(message):
     if int(message.chat.id) != int(ADMIN_ID):
@@ -383,7 +382,10 @@ def handle_admin_flow(message):
             
             save_products(products)
             cat_key = state["category"]
-            del admin_states[chat_id]
+            
+            # Очищаем состояние ДО отправки сообщения об успехе
+            if chat_id in admin_states:
+                del admin_states[chat_id]
             
             bot.send_message(chat_id, f"🎉 Товар успешно добавлен в категорию «{CATEGORIES.get(cat_key)}»!")
             show_main_menu(chat_id)
@@ -420,7 +422,9 @@ def handle_admin_flow(message):
             
             products[item_id] = item
             save_products(products)
-            del admin_states[chat_id]
+            
+            if chat_id in admin_states:
+                del admin_states[chat_id]
             
             bot.send_message(chat_id, "✅ Товар успешно обновлен!")
             show_main_menu(chat_id)
