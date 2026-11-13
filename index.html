@@ -20,7 +20,7 @@
             color: var(--text-color);
             margin: 0;
             padding: 16px;
-            padding-bottom: 120px; /* Увеличили отступ снизу, чтобы контент не прятался под панель */
+            padding-bottom: 120px;
         }
         h1 {
             text-align: center;
@@ -88,7 +88,7 @@
         }
         .cart-bar {
             position: fixed;
-            bottom: 45px; /* Подняли выше уровня плашки Netlify */
+            bottom: 45px;
             left: 10px;
             right: 10px;
             background: #1a1a1a;
@@ -154,7 +154,6 @@
             let container = document.getElementById('catalog-container');
             container.innerHTML = '';
 
-            // Фигурные бусины
             if (catalogData.beads && catalogData.beads.length > 0) {
                 let beadsHtml = `
                     <div class="category-title">Фигурные бусины из металла</div>
@@ -172,7 +171,6 @@
                 container.innerHTML += beadsHtml;
             }
 
-            // Темляки
             if (catalogData.lanyards && catalogData.lanyards.length > 0) {
                 let lanyardsHtml = `<div class="category-title">Темляки и брелоки</div>`;
                 catalogData.lanyards.forEach(item => {
@@ -190,7 +188,6 @@
                 container.innerHTML += lanyardsHtml;
             }
 
-            // Браслеты
             if (catalogData.bracelets && catalogData.bracelets.length > 0) {
                 let braceletsHtml = `<div class="category-title">Браслеты из паракорда</div>`;
                 catalogData.bracelets.forEach(item => {
@@ -208,7 +205,6 @@
                 container.innerHTML += braceletsHtml;
             }
 
-            // Дополнительно
             if (catalogData.extras && catalogData.extras.length > 0) {
                 let extrasHtml = `<div class="category-title">Дополнительно</div>`;
                 catalogData.extras.forEach(item => {
