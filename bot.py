@@ -16,19 +16,24 @@ user_carts = {}
 admin_states = {}
 
 def load_products():
-    if os.path.exists(PRODUCTS_FILE):
-        try:
-            with open(PRODUCTS_FILE, "r", encoding="utf-8") as f:
-                data = json.load(f)
-                if isinstance(data, dict):
-                    return data
-        except Exception as e:
-            print(f"Ошибка чтения products.json: {e}")
+    if not os.path.exists(PRODUCTS_FILE):
+        return {}
+    try:
+        with open(PRODUCTS_FILE, "r", encoding="utf-8") as f:
+            data = json.load(f)
+            if isinstance(data, dict):
+                return data
+    except Exception as e:
+        print(f"Ошибка чтения products.json: {e}")
     return {}
 
 def save_products(data):
-    with open(PRODUCTS_FILE, "w", encoding="utf-8") as f:
-        json.dump(data, f, ensure_ascii=False, indent=4)
+    try:
+        with open(PRODUCTS_FILE, "w", encoding="utf-8") as f:
+            json.dump(data, f, ensure_ascii=False, indent=4)
+        print(f"Успешно сохранено товаров в файл: {len(data)}")
+    except Exception as e:
+        print(f"Ошибка сохранения products.json: {e}")
 
 @app.route('/')
 def home():
@@ -70,11 +75,10 @@ def show_main_menu(chat_id):
 
 @bot.callback_query_handler(func=lambda call: call.data == "catalog")
 def open_catalog(call):
-    print(">>> ОБРАБОТЧИК: Нажали кнопку 'Открыть каталог'")
     bot.answer_callback_query(call.id)
     
     products = load_products()
-    print(>>> Загружено товаров из файла: {len(products)})
+    print(f"Открытие каталога. Доступно товаров: {len(products)}")
     
     markup = telebot.types.InlineKeyboardMarkup()
     
@@ -93,12 +97,10 @@ def open_catalog(call):
         markup.add(telebot.types.InlineKeyboardButton("🛒 Корзина / Оформить", callback_data="view_cart"))
         markup.add(telebot.types.InlineKeyboardButton("🔙 Главное меню", callback_data="main_menu"))
 
-    # Отправляем новое сообщение с каталогом
     try:
         bot.send_message(call.message.chat.id, text, reply_markup=markup)
-        print(">>> Каталог успешно отправлен пользователю.")
     except Exception as e:
-        print(f">>> ОШИБКА отправки каталога: {e}")
+        print(f"Ошибка отправки каталога: {e}")
 
 @bot.callback_query_handler(func=lambda call: call.data.startswith("view_item_"))
 def view_item_card(call):
