@@ -249,7 +249,7 @@ def back_to_menu(call):
         del admin_states[call.message.chat.id]
     show_main_menu(call.message.chat.id)
 
-# --- АДМИНКА (ПОШАГОВЫЙ ДОБАВИТЕЛЬ) ---
+# --- АДМИНКА ---
 
 @bot.callback_query_handler(func=lambda call: call.data.startswith("admin_add_"))
 def admin_add_start(call):
@@ -312,8 +312,19 @@ def skip_photo(call):
         admin_states[chat_id]["step"] = "price"
         bot.send_message(chat_id, "💵 Шаг 3/5: Напиши цену товара цифрами (например: 750):")
 
-@bot.message_handler(content_types=['text', 'photo'], func=lambda message: message.chat.id in admin_states)
-def handle_admin_flow(message):
+@bot.message_handler(content_types=['photo'], func=lambda message: message.chat.id in admin_states and admin_states[message.chat.id].get("step") == "photo")
+def handle_admin_photo(message):
+    if int(message.chat.id) != int(ADMIN_ID):
+        return
+    chat_id = message.chat.id
+    state = admin_states[chat_id]
+    
+    state["photo"] = message.photo[-1].file_id if message.photo else None
+    state["step"] = "price"
+    bot.send_message(chat_id, "💵 Шаг 3/5: Напиши цену цифрами (например: 600):")
+
+@bot.message_handler(content_types=['text'], func=lambda message: message.chat.id in admin_states)
+def handle_admin_text(message):
     if int(message.chat.id) != int(ADMIN_ID):
         return
         
@@ -335,9 +346,8 @@ def handle_admin_flow(message):
             return
             
         elif step == "photo":
-            state["photo"] = message.photo[-1].file_id if message.photo else None
-            state["step"] = "price"
-            bot.send_message(chat_id, "💵 Шаг 3/5: Напиши цену цифрами (например: 600):")
+            # Если на шаге фото прислали текст вместо картинки
+            bot.send_message(chat_id, "🖼 Пожалуйста, отправь фото товара или нажми «Пропустить фото»:")
             return
             
         elif step == "price":
