@@ -9,7 +9,10 @@ bot = telebot.TeleBot(TOKEN)
 app = Flask(__name__)
 WEBHOOK_URL = f"https://thespidertemplebot.onrender.com/{TOKEN}"
 
+# Твои данные администратора (и ID, и никнейм для надежности)
 ADMIN_ID = 622304662
+ADMIN_USERNAME = "DeadKesha"
+
 PRODUCTS_FILE = "products.json"
 
 user_carts = {}
@@ -24,6 +27,14 @@ def load_products():
 def save_products(data):
     with open(PRODUCTS_FILE, "w", encoding="utf-8") as f:
         json.dump(data, f, ensure_ascii=False, indent=4)
+
+def is_admin(user):
+    """Проверка прав админа по ID или юзернейму"""
+    if user.id == ADMIN_ID:
+        return True
+    if user.username and user.username.lower() == ADMIN_USERNAME.lower():
+        return True
+    return False
 
 @app.route('/')
 def home():
@@ -42,23 +53,26 @@ def webhook():
 @bot.message_handler(commands=['start'])
 def send_welcome(message):
     user_carts[message.chat.id] = []
-    # Сбрасываем возможное зависшее состояние админки при старте
     if message.chat.id in admin_states:
         del admin_states[message.chat.id]
         
+    # Лог в консоль Render, чтобы проверить твой реальный ID в момент старта
+    print(f"DEBUG /start от пользователя: ID={message.from_user.id}, Username={message.from_user.username}")
+    
     text = (
         "Приветствую! Добро пожаловать в мастерскую **Храм Паука**.\n\n"
         "Здесь ты можешь посмотреть каталог изделий, собрать заказ "
         "и отправить его прямо в чат."
     )
-    show_main_menu(message.chat.id, message.from_user.id, text)
+    show_main_menu(message.chat.id, message.from_user, text)
 
-def show_main_menu(chat_id, user_id, text):
+def show_main_menu(chat_id, user, text):
     markup = telebot.types.InlineKeyboardMarkup()
     markup.add(telebot.types.InlineKeyboardButton("🛍 Открыть каталог", callback_data="catalog"))
     markup.add(telebot.types.InlineKeyboardButton("🛒 Корзина", callback_data="view_cart"))
     
-    if user_id == ADMIN_ID:
+    # Проверяем права
+    if is_admin(user):
         markup.add(telebot.types.InlineKeyboardButton("➕ Добавить товар (Админ)", callback_data="add_product_start"))
         
     bot.send_message(chat_id, text, reply_markup=markup, parse_mode="Markdown")
@@ -208,14 +222,14 @@ def back_to_menu(call):
         bot.delete_message(call.message.chat.id, call.message.message_id)
     except Exception:
         pass
-    show_main_menu(call.message.chat.id, call.from_user.id, "Главное меню:")
+    show_main_menu(call.message.chat.id, call.from_user, "Главное меню:")
     bot.answer_callback_query(call.id)
 
 # --- АДМИНКА ДЛЯ ДОБАВЛЕНИЯ ТОВАРА ---
 
 @bot.callback_query_handler(func=lambda call: call.data == "add_product_start")
 def add_product_start(call):
-    if call.from_user.id != ADMIN_ID:
+    if not is_admin(call.from_user):
         bot.answer_callback_query(call.id, "❌ У тебя нет прав администратора.", show_alert=True)
         return
         
@@ -226,10 +240,9 @@ def add_product_start(call):
     bot.edit_message_text("✍️ **Шаг 1/5:** Напиши название нового товара:", call.message.chat.id, call.message.message_id, reply_markup=markup, parse_mode="Markdown")
     bot.answer_callback_query(call.id)
 
-# Отдельный обработчик для отмены через кнопку
 @bot.callback_query_handler(func=lambda call: call.data == "skip_photo")
 def skip_photo(call):
-    if call.from_user.id != ADMIN_ID:
+    if not is_admin(call.from_user):
         return
     chat_id = call.message.chat.id
     if chat_id in admin_states and admin_states[chat_id]["step"] == "photo":
@@ -238,10 +251,9 @@ def skip_photo(call):
         bot.edit_message_text("💵 **Шаг 3/5:** Напиши цену товара цифрами (например: `750`):", chat_id, call.message.message_id, parse_mode="Markdown")
     bot.answer_callback_query(call.id)
 
-# Обработка текстовых и фото сообщений для админки
 @bot.message_handler(content_types=['text', 'photo'], func=lambda message: message.chat.id in admin_states)
 def handle_admin_creation(message):
-    if message.from_user.id != ADMIN_ID:
+    if not is_admin(message.from_user):
         return
         
     chat_id = message.chat.id
@@ -278,4 +290,45 @@ def handle_admin_creation(message):
             
     elif step == "material":
         if not message.text:
-            bot.send_message(chat_id, "❌ Пожалуйста, введи материал
+            bot.send_message(chat_id, "❌ Пожалуйста, введи материал текстом:")
+            return
+        state["material"] = message.text.strip()
+        state["step"] = "time"
+        bot.send_message(chat_id, "⏱ **Шаг 5/5:** Укажи срок изготовления (например: `1-2 дня`):", parse_mode="Markdown")
+        
+    elif step == "time":
+        if not message.text:
+            bot.send_message(chat_id, "❌ Пожалуйста, введи срок текстом:")
+            return
+        state["time"] = message.text.strip()
+        
+        products = load_products()
+        item_id = f"item_{int(os.urandom(3).hex(), 16)}"
+        
+        products[item_id] = {
+            "name": state["name"],
+            "photo": state.get("photo"),
+            "price": state["price"],
+            "material": state["material"],
+            "time": state["time"]
+        }
+        
+        save_products(products)
+        del admin_states[chat_id]
+        
+        bot.send_message(chat_id, f"🎉 **Товар успешно добавлен в каталог!**\n\n📌 {state['name']} — {state['price']} ₽", parse_mode="Markdown")
+        show_main_menu(chat_id, message.from_user, "Главное меню:")
+
+if __name__ == '__main__':
+    bot.remove_webhook()
+    bot.set_webhook(url=WEBHOOK_URL)
+    
+    try:
+        bot.delete_chat_menu_button()
+    except Exception:
+        pass
+        
+    print(f"Вебхук установлен на: {WEBHOOK_URL}")
+    
+    port = int(os.environ.format("PORT", 10000))
+    app.run(host="0.0.0.0", port=port)
