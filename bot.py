@@ -188,17 +188,24 @@ def checkout_order(call):
     if not cart:
         return
         
-    order_text = f"🚨 НОВЫЙ ЗАКАЗ ИЗ ЧАТА!\n(ID клиента: `{chat_id}`)\n\n"
+    order_text = f"🚨 **НОВЫЙ ЗАКАЗ ИЗ ЧАТА!**\n(ID клиента: `{chat_id}`)\n\n"
     total = 0
     for item in cart:
         name = item.get('name', 'Товар')
         price = item.get('price', 0)
         order_text += f"• {name} — {price} ₽\n"
         total += price
-    order_text += f"\n💰 Сумма: {total} ₽"
+    order_text += f"\n💰 **Сумма:** {total} ₽"
     
-    bot.send_message(chat_id, "✅ Заказ успешно оформлен! Спасибо, что выбрали «Храм Паука»!")
-    bot.send_message(chat_id, order_text)
+    # Покупателю показываем только подтверждение в его чате
+    bot.send_message(chat_id, "✅ **Заказ успешно оформлен!** Спасибо, что выбрали «Храм Паука»!", parse_mode="Markdown")
+    
+    # А детальный заказ отправляем в ЛС администратору (тебе)
+    try:
+        bot.send_message(ADMIN_ID, order_text, parse_mode="Markdown")
+    except Exception as e:
+        print(f"Не удалось отправить заказ админу: {e}")
+    
     user_carts[chat_id] = []
 
 @bot.callback_query_handler(func=lambda call: call.data == "main_menu")
@@ -239,8 +246,6 @@ def handle_admin_creation(message):
     chat_id = message.chat.id
     state = admin_states[chat_id]
     step = state.get("step")
-    
-    print(f"DEBUG STEP: текущий шаг = {step}, текст = {message.text}")
 
     if step == "name":
         if not message.text:
@@ -303,7 +308,6 @@ def handle_admin_creation(message):
         bot.send_message(chat_id, f"🎉 Товар успешно добавлен в каталог!\n\n📌 {state['name']} — {state['price']} ₽")
         show_main_menu(chat_id)
     else:
-        # На случай если состояние сбилось — сбрасываем в начало
         bot.send_message(chat_id, "⚠️ Произошел сброс шага. Начни добавление товара заново через меню.")
         if chat_id in admin_states:
             del admin_states[chat_id]
