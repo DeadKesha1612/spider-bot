@@ -358,10 +358,8 @@ def handle_admin_flow(message):
             bot.send_message(chat_id, "⏱ Шаг 5/5: Укажи срок изготовления (например: 1-2 дня):")
             
         elif step == "time":
-            if not message.text:
-                bot.send_message(chat_id, "❌ Введи срок текстом:")
-                return
-            state["time"] = message.text.strip()
+            text_val = message.text.strip() if message.text else "1-2 дня"
+            state["time"] = text_val
             
             products = load_products()
             item_id = f"item_{int(os.urandom(3).hex(), 16)}"
