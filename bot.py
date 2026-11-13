@@ -19,10 +19,11 @@ def load_products():
     if os.path.exists(PRODUCTS_FILE):
         try:
             with open(PRODUCTS_FILE, "r", encoding="utf-8") as f:
-                return json.load(f)
+                data = json.load(f)
+                if isinstance(data, dict):
+                    return data
         except Exception as e:
-            print(f"Error loading products: {e}")
-            return {}
+            print(f"Ошибка чтения products.json: {e}")
     return {}
 
 def save_products(data):
@@ -42,16 +43,13 @@ def webhook():
         bot.process_new_updates([update])
         return '', 200
     else:
-        print(f"Rejected request with content-type: {content_type}")
         return 'Forbidden', 403
 
 @bot.message_handler(commands=['start'])
 def send_welcome(message):
-    print(f"COMMAND /START from user {message.chat.id}")
     user_carts[message.chat.id] = []
     if message.chat.id in admin_states:
         del admin_states[message.chat.id]
-        
     show_main_menu(message.chat.id)
 
 def show_main_menu(chat_id):
@@ -72,46 +70,35 @@ def show_main_menu(chat_id):
 
 @bot.callback_query_handler(func=lambda call: call.data == "catalog")
 def open_catalog(call):
-    print("CALLBACK: Нажали 'Открыть каталог'")
+    print(">>> ОБРАБОТЧИК: Нажали кнопку 'Открыть каталог'")
     bot.answer_callback_query(call.id)
     
-    try:
-        products = load_products()
-        print(f"Загруженные товары: {products}")
-        
-        markup = telebot.types.InlineKeyboardMarkup()
-        
-        try:
-            bot.delete_message(call.message.chat.id, call.message.message_id)
-        except Exception as e:
-            print(f"Не удалось удалить старое сообщение: {e}")
-        
-        if not products:
-            markup.add(telebot.types.InlineKeyboardButton("🔙 Главное меню", callback_data="main_menu"))
-            bot.send_message(call.message.chat.id, "🛍 Каталог товаров пуст.\nВ каталоге пока нет ни одного товара.", reply_markup=markup)
-            return
-
+    products = load_products()
+    print(>>> Загружено товаров из файла: {len(products)})
+    
+    markup = telebot.types.InlineKeyboardMarkup()
+    
+    if not products:
+        markup.add(telebot.types.InlineKeyboardButton("🔙 Главное меню", callback_data="main_menu"))
+        text = "🛍 Каталог товаров пуст.\nВ каталоге пока нет ни одного товара."
+    else:
+        text = "🛍 Каталог товаров:\nВыбери товар, чтобы посмотреть подробности:"
         for item_id, item in products.items():
-            name = item.get('name', 'Товар')
-            price = item.get('price', 0)
-            btn_text = f"{name} — {price} ₽"
-            markup.add(telebot.types.InlineKeyboardButton(btn_text, callback_data=f"view_item_{item_id}"))
+            if isinstance(item, dict):
+                name = item.get('name', 'Товар')
+                price = item.get('price', 0)
+                btn_text = f"{name} — {price} ₽"
+                markup.add(telebot.types.InlineKeyboardButton(btn_text, callback_data=f"view_item_{item_id}"))
                 
         markup.add(telebot.types.InlineKeyboardButton("🛒 Корзина / Оформить", callback_data="view_cart"))
         markup.add(telebot.types.InlineKeyboardButton("🔙 Главное меню", callback_data="main_menu"))
-        
-        bot.send_message(
-            call.message.chat.id, 
-            "🛍 Каталог товаров:\nВыбери товар, чтобы посмотреть подробности и добавить в корзину:", 
-            reply_markup=markup
-        )
-        print("Каталог успешно отправлен пользователю.")
-        
+
+    # Отправляем новое сообщение с каталогом
+    try:
+        bot.send_message(call.message.chat.id, text, reply_markup=markup)
+        print(">>> Каталог успешно отправлен пользователю.")
     except Exception as e:
-        print(f"ОШИБКА в open_catalog: {e}")
-        markup = telebot.types.InlineKeyboardMarkup()
-        markup.add(telebot.types.InlineKeyboardButton("🔙 Главное меню", callback_data="main_menu"))
-        bot.send_message(call.message.chat.id, "❌ Произошла ошибка при загрузке каталога. Возвращаю в меню.", reply_markup=markup)
+        print(f">>> ОШИБКА отправки каталога: {e}")
 
 @bot.callback_query_handler(func=lambda call: call.data.startswith("view_item_"))
 def view_item_card(call):
@@ -140,11 +127,6 @@ def view_item_card(call):
     markup.add(telebot.types.InlineKeyboardButton("🛒 Добавить в корзину", callback_data=f"add_{item_id}"))
     markup.add(telebot.types.InlineKeyboardButton("◀️ Назад в каталог", callback_data="catalog"))
 
-    try:
-        bot.delete_message(call.message.chat.id, call.message.message_id)
-    except Exception:
-        pass
-    
     if item.get("photo"):
         bot.send_photo(call.message.chat.id, item["photo"], caption=caption, reply_markup=markup)
     else:
@@ -171,11 +153,6 @@ def view_cart(call):
     chat_id = call.message.chat.id
     cart = user_carts.get(chat_id, [])
     
-    try:
-        bot.delete_message(chat_id, call.message.message_id)
-    except Exception:
-        pass
-        
     markup = telebot.types.InlineKeyboardMarkup()
     
     if not cart:
@@ -222,7 +199,6 @@ def checkout_order(call):
     
     bot.send_message(chat_id, "✅ Заказ успешно оформлен! Спасибо, что выбрали «Храм Паука»!")
     bot.send_message(chat_id, order_text)
-    
     user_carts[chat_id] = []
 
 @bot.callback_query_handler(func=lambda call: call.data == "main_menu")
@@ -230,10 +206,6 @@ def back_to_menu(call):
     bot.answer_callback_query(call.id)
     if call.message.chat.id in admin_states:
         del admin_states[call.message.chat.id]
-    try:
-        bot.delete_message(call.message.chat.id, call.message.message_id)
-    except Exception:
-        pass
     show_main_menu(call.message.chat.id)
 
 # --- АДМИНКА ДЛЯ ДОБАВЛЕНИЯ ТОВАРА ---
@@ -248,11 +220,6 @@ def add_product_start(call):
     markup = telebot.types.InlineKeyboardMarkup()
     markup.add(telebot.types.InlineKeyboardButton("❌ Отмена", callback_data="main_menu"))
     
-    try:
-        bot.delete_message(call.message.chat.id, call.message.message_id)
-    except Exception:
-        pass
-        
     bot.send_message(call.message.chat.id, "✍️ Шаг 1/5: Напиши название нового товара:", reply_markup=markup)
 
 @bot.callback_query_handler(func=lambda call: call.data == "skip_photo")
