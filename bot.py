@@ -5,7 +5,6 @@ from aiogram import Bot, Dispatcher, types
 from aiogram.filters import Command
 from aiohttp import web
 
-# Твой реальный токен
 TOKEN = "9037922529:AAFXbac00LXXVDpMaX2zK9ua2HKpQvWxCko"
 ADMIN_ID = 5393257255
 WEB_APP_URL = "https://dead-kesha.netlify.app/"
@@ -15,7 +14,6 @@ logging.basicConfig(level=logging.INFO)
 bot = Bot(token=TOKEN)
 dp = Dispatcher()
 
-# Обработчик команды /start
 @dp.message(Command("start"))
 async def cmd_start(message: types.Message):
     builder = types.InlineKeyboardBuilder()
@@ -30,25 +28,27 @@ async def cmd_start(message: types.Message):
         parse_mode="Markdown"
     )
 
-# Заглушка веб-сервера для Render (чтобы проходил проверку портов)
+# Обработчик веб-сервера для Render
 async def handle(request):
     return web.Response(text="Spider Bot is running 24/7!")
 
 app = web.Application()
 app.router.add_get("/", handle)
 
-async def start_web_server():
+async def main():
+    # Запускаем телеграм-бота в фоновой задаче
+    polling_task = asyncio.create_task(dp.start_polling(bot))
+    
+    # Настраиваем и запускаем веб-сервер на порту Render
     runner = web.AppRunner(app)
     await runner.setup()
     port = int(os.environ.get("PORT", 10000))
     site = web.TCPSite(runner, "0.0.0.0", port)
     await site.start()
-
-async def main():
-    # Запускаем веб-сервер для Render в фоне
-    await start_web_server()
-    # Запускаем телеграм бота
-    await dp.start_polling(bot)
+    logging.info(f"Web server started on port {port}")
+    
+    # Держим приложение работающим
+    await polling_task
 
 if __name__ == "__main__":
     asyncio.run(main())
