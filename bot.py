@@ -15,7 +15,6 @@ PRODUCTS_FILE = "products.json"
 user_carts = {}
 admin_states = {}
 
-# Категории товаров
 CATEGORIES = {
     "bracelets": "Браслеты",
     "lanyards": "Брелоки / Темляки",
@@ -88,12 +87,6 @@ def open_catalog(call):
     markup.add(telebot.types.InlineKeyboardButton("🔙 Главное меню", callback_data="main_menu"))
     
     text = "🛍 Выбери категорию товаров:"
-    
-    try:
-        bot.delete_message(call.message.chat.id, call.message.message_id)
-    except Exception:
-        pass
-        
     bot.send_message(call.message.chat.id, text, reply_markup=markup)
 
 @bot.callback_query_handler(func=lambda call: call.data.startswith("cat_"))
@@ -112,20 +105,15 @@ def view_category_item(call):
     if not cat_items:
         text = f"📁 Категория: *{CATEGORIES.get(cat_key, 'Товары')}*\n\nВ этой категории пока нет товаров."
         
-        # Большая кнопка добавления для админа
+        # Если админ — обязательно даем кнопку добавления
         if is_admin:
             markup.add(telebot.types.InlineKeyboardButton("➕ Добавить товар в эту категорию", callback_data=f"admin_add_{cat_key}"))
             
         markup.add(telebot.types.InlineKeyboardButton("🔙 К категориям", callback_data="catalog"))
-        
-        try:
-            bot.delete_message(call.message.chat.id, call.message.message_id)
-        except Exception:
-            pass
         bot.send_message(call.message.chat.id, text, parse_mode="Markdown", reply_markup=markup)
         return
 
-    # Циклическая пагинация (листаем товары по одному)
+    # Циклическая пагинация
     total_items = len(cat_items)
     index = index % total_items
     item_id, item = cat_items[index]
@@ -143,17 +131,17 @@ def view_category_item(call):
         f"⏱ Срок изготовления: {time_val}"
     )
     
-    # 1. Кнопка добавления в корзину
+    # 1. Добавить в корзину
     markup.add(telebot.types.InlineKeyboardButton("🛒 Добавить в корзину", callback_data=f"cart_add_{item_id}"))
     
-    # 2. Кнопки листания (Назад / Вперед)
+    # 2. Листание Назад / Вперед
     nav_buttons = [
         telebot.types.InlineKeyboardButton("⬅️ Назад", callback_data=f"cat_{cat_key}_{index - 1}"),
         telebot.types.InlineKeyboardButton("Вперед ➡️", callback_data=f"cat_{cat_key}_{index + 1}")
     ]
     markup.row(*nav_buttons)
     
-    # 3. Большая кнопка добавления товара (видна только админу)
+    # 3. Админские кнопки (Добавить, Редактировать, Удалить)
     if is_admin:
         markup.add(telebot.types.InlineKeyboardButton("➕ Добавить товар в эту категорию", callback_data=f"admin_add_{cat_key}"))
         markup.add(
@@ -163,11 +151,6 @@ def view_category_item(call):
 
     # 4. Возврат к категориям
     markup.add(telebot.types.InlineKeyboardButton("🔙 К категориям", callback_data="catalog"))
-
-    try:
-        bot.delete_message(call.message.chat.id, call.message.message_id)
-    except Exception:
-        pass
     
     if item.get("photo"):
         bot.send_photo(call.message.chat.id, item["photo"], caption=text, parse_mode="Markdown", reply_markup=markup)
@@ -187,7 +170,7 @@ def add_to_cart(call):
         if chat_id not in user_carts:
             user_carts[chat_id] = []
         user_carts[chat_id].append(item)
-        bot.answer_callback_query(call.id, f"✅ Добавлено в корзину: {item.get('name', 'Товар')}")
+        bot.answer_callback_query(call.id, f"✅ Добавлено: {item.get('name', 'Товар')}")
     else:
         bot.answer_callback_query(call.id, "❌ Товар не найден.")
 
@@ -217,11 +200,6 @@ def view_cart(call):
         markup.add(telebot.types.InlineKeyboardButton("🛍 Продолжить покупки", callback_data="catalog"))
         
     markup.add(telebot.types.InlineKeyboardButton("🔙 Главное меню", callback_data="main_menu"))
-    
-    try:
-        bot.delete_message(chat_id, call.message.message_id)
-    except Exception:
-        pass
     bot.send_message(chat_id, text, reply_markup=markup)
 
 @bot.callback_query_handler(func=lambda call: call.data == "clear_cart")
@@ -254,11 +232,6 @@ def checkout_order(call):
         print(f"Не удалось отправить заказ админу: {e}")
     
     user_carts[chat_id] = []
-    
-    try:
-        bot.delete_message(chat_id, call.message.message_id)
-    except Exception:
-        pass
     show_main_menu(chat_id)
 
 @bot.callback_query_handler(func=lambda call: call.data == "main_menu")
@@ -266,13 +239,9 @@ def back_to_menu(call):
     bot.answer_callback_query(call.id)
     if call.message.chat.id in admin_states:
         del admin_states[call.message.chat.id]
-    try:
-        bot.delete_message(call.message.chat.id, call.message.message_id)
-    except Exception:
-        pass
     show_main_menu(call.message.chat.id)
 
-# --- АДМИНКА: ДОБАВЛЕНИЕ, РЕДАКТИРОВАНИЕ, УДАЛЕНИЕ ---
+# --- АДМИНКА ---
 
 @bot.callback_query_handler(func=lambda call: call.data.startswith("admin_add_"))
 def admin_add_start(call):
@@ -285,10 +254,6 @@ def admin_add_start(call):
     markup = telebot.types.InlineKeyboardMarkup()
     markup.add(telebot.types.InlineKeyboardButton("❌ Отмена", callback_data="catalog"))
     
-    try:
-        bot.delete_message(call.message.chat.id, call.message.message_id)
-    except Exception:
-        pass
     bot.send_message(call.message.chat.id, f"✍️ [Добавление в «{CATEGORIES.get(cat_key)}»] Шаг 1/5: Напиши название товара:", reply_markup=markup)
 
 @bot.callback_query_handler(func=lambda call: call.data.startswith("admin_del_"))
@@ -328,10 +293,6 @@ def admin_edit_start(call):
     markup = telebot.types.InlineKeyboardMarkup()
     markup.add(telebot.types.InlineKeyboardButton("❌ Отмена", callback_data="catalog"))
     
-    try:
-        bot.delete_message(call.message.chat.id, call.message.message_id)
-    except Exception:
-        pass
     bot.send_message(call.message.chat.id, f"✏️ [Редактирование: {item.get('name')}]\nШаг 1/3: Напиши новое название:", reply_markup=markup)
 
 @bot.callback_query_handler(func=lambda call: call.data == "skip_photo")
