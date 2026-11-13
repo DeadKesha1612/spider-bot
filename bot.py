@@ -104,8 +104,12 @@ def view_category_item(call):
     products = load_products()
     cat_items = []
     for item_id, item in products.items():
-        if isinstance(item, dict) and str(item.get("category")).strip() == str(cat_key).strip():
-            cat_items.append((item_id, item))
+        if isinstance(item, dict):
+            item_cat = str(item.get("category", "")).strip().lower()
+            target_cat = str(cat_key).strip().lower()
+            # Гибкая проверка совпадения категории
+            if item_cat == target_cat or (target_cat == "bracelets" and "браслет" in item_cat):
+                cat_items.append((item_id, item))
     
     markup = telebot.types.InlineKeyboardMarkup()
     is_admin = (int(call.message.chat.id) == int(ADMIN_ID))
@@ -270,12 +274,10 @@ def admin_delete_item(call):
     if int(call.message.chat.id) != int(ADMIN_ID):
         return
     
-    # Формат callback: admin_del_{cat_key}_{index}_{item_id}
-    # Разделяем по первому и последним частям, чтобы корректно забрать item_id
     parts = call.data.replace("admin_del_", "").split("_")
     cat_key = parts[0]
     index = int(parts[1])
-    item_id = "_".join(parts[2:]) # на случай если в самом item_id есть подчеркивания
+    item_id = "_".join(parts[2:])
     
     products = load_products()
     if item_id in products:
@@ -285,7 +287,6 @@ def admin_delete_item(call):
     else:
         bot.answer_callback_query(call.id, "❌ Товар не найден в базе.")
     
-    # Подменяем data для вызова функции отображения категории
     call.data = f"cat_{cat_key}_{index}"
     view_category_item(call)
 
