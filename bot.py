@@ -245,6 +245,8 @@ def handle_admin_creation(message):
     state = admin_states[chat_id]
     step = state["step"]
     
+    print(f"DEBUG ADMIN: Текущий шаг = {step}, Получено сообщение = {message.text}")
+
     if step == "name":
         if not message.text:
             bot.send_message(chat_id, "❌ Пожалуйста, введи текстовое название товара:")
@@ -258,7 +260,6 @@ def handle_admin_creation(message):
         
     elif step == "photo":
         if message.photo:
-            # Берем самое качественное фото
             state["photo"] = message.photo[-1].file_id
         else:
             state["photo"] = None
@@ -267,16 +268,14 @@ def handle_admin_creation(message):
         bot.send_message(chat_id, "💵 **Шаг 3/5:** Напиши цену товара цифрами (например: `750`):", parse_mode="Markdown")
         
     elif step == "price":
-        if not message.text:
-            bot.send_message(chat_id, "❌ Введи цену цифрами:")
-            return
+        text_val = message.text.strip() if message.text else ""
         try:
-            price = int(message.text.strip())
+            price = int(text_val)
             state["price"] = price
             state["step"] = "material"
             bot.send_message(chat_id, "🧵 **Шаг 4/5:** Укажи материал (например: `Паракорд 550, бусина латунь`):", parse_mode="Markdown")
         except ValueError:
-            bot.send_message(chat_id, "❌ Цена должна быть целым числом. Введи цену еще раз:")
+            bot.send_message(chat_id, "❌ Цена должна быть целым числом (например, `600`). Введи цену еще раз:")
             
     elif step == "material":
         if not message.text:
