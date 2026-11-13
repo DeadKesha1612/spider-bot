@@ -8,7 +8,7 @@ from aiohttp import web
 
 TOKEN = "9037922529:AAFXbac00LXXVDpMaX2zK9ua2HKpQvWxCko"
 ADMIN_ID = 5393257255
-WEB_APP_URL = "https://dead-kesha.netlify.app/"
+WEB_APP_URL = "https://polite-cupcake-6a47ca.netlify.app/"
 
 logging.basicConfig(level=logging.INFO)
 
