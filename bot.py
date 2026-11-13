@@ -42,7 +42,6 @@ def save_products(data):
     except Exception as e:
         print(f"Ошибка сохранения products.json: {e}")
 
-# ЖЕЛЕЗОБЕТОННАЯ ЗАЩИТА: создаем пустой файл ТОЛЬКО если его вообще нет на диске
 if not os.path.exists(PRODUCTS_FILE):
     save_products({})
 
@@ -69,7 +68,6 @@ def send_welcome(message):
         del admin_states[chat_id]
     show_main_menu(chat_id)
 
-# Скрытая команда для тебя: отправь /backup в боте, чтобы получить файл с товарами прямо в чат на случай бэкапа
 @bot.message_handler(commands=['backup'])
 def send_backup(message):
     if int(message.chat.id) != int(ADMIN_ID):
@@ -119,7 +117,10 @@ def view_category_item(call):
         if isinstance(item, dict):
             item_cat = str(item.get("category", "")).strip().lower()
             target_cat = str(cat_key).strip().lower()
-            if item_cat == target_cat or (target_cat == "bracelets" and "браслет" in item_cat):
+            # Гибкая проверка для категорий
+            if item_cat == target_cat or \
+               (target_cat == "bracelets" and "браслет" in item_cat) or \
+               (target_cat == "beads" and ("бусин" in item_cat or "фигурк" in item_cat)):
                 cat_items.append((item_id, item))
     
     markup = telebot.types.InlineKeyboardMarkup()
