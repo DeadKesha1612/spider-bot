@@ -20,7 +20,7 @@
             color: var(--text-color);
             margin: 0;
             padding: 16px;
-            padding-bottom: 90px;
+            padding-bottom: 120px; /* Увеличили отступ снизу, чтобы контент не прятался под панель */
         }
         h1 {
             text-align: center;
@@ -88,16 +88,17 @@
         }
         .cart-bar {
             position: fixed;
-            bottom: 0;
-            left: 0;
-            right: 0;
+            bottom: 45px; /* Подняли выше уровня плашки Netlify */
+            left: 10px;
+            right: 10px;
             background: #1a1a1a;
-            border-top: 1px solid var(--border-color);
+            border: 1px solid var(--border-color);
+            border-radius: 12px;
             padding: 12px 16px;
             display: flex;
             justify-content: space-between;
             align-items: center;
-            box-shadow: 0 -4px 10px rgba(0,0,0,0.5);
+            box-shadow: 0 -4px 15px rgba(0,0,0,0.7);
             z-index: 1000;
         }
         .cart-total {
@@ -253,20 +254,6 @@
             tg.sendData(orderData);
             tg.close();
         }
-    </script>
-
-    <script>
-        // Принудительное удаление плашки Netlify динамически
-        window.addEventListener('DOMContentLoaded', () => {
-            const observer = new MutationObserver((mutations, obs) => {
-                const badge = document.querySelector('img[alt="Powered by Netlify"]')?.closest('a') || document.querySelector('a[href*="netlify.com/support"]');
-                if (badge) {
-                    badge.remove();
-                    obs.disconnect();
-                }
-            });
-            observer.observe(document.body, { childList: true, subtree: true });
-        });
     </script>
 </body>
 </html>
