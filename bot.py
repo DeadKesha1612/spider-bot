@@ -78,8 +78,6 @@ def open_catalog(call):
     bot.answer_callback_query(call.id)
     
     products = load_products()
-    print(f"Открытие каталога. Доступно товаров: {len(products)}")
-    
     markup = telebot.types.InlineKeyboardMarkup()
     
     if not products:
@@ -240,7 +238,9 @@ def handle_admin_creation(message):
         
     chat_id = message.chat.id
     state = admin_states[chat_id]
-    step = state["step"]
+    step = state.get("step")
+    
+    print(f"DEBUG STEP: текущий шаг = {step}, текст = {message.text}")
 
     if step == "name":
         if not message.text:
@@ -302,6 +302,11 @@ def handle_admin_creation(message):
         
         bot.send_message(chat_id, f"🎉 Товар успешно добавлен в каталог!\n\n📌 {state['name']} — {state['price']} ₽")
         show_main_menu(chat_id)
+    else:
+        # На случай если состояние сбилось — сбрасываем в начало
+        bot.send_message(chat_id, "⚠️ Произошел сброс шага. Начни добавление товара заново через меню.")
+        if chat_id in admin_states:
+            del admin_states[chat_id]
 
 if __name__ == '__main__':
     bot.remove_webhook()
