@@ -97,15 +97,19 @@ def view_category_item(call):
     index = int(parts[2])
     
     products = load_products()
-    cat_items = [(item_id, item) for item_id, item in products.items() if item.get("category") == cat_key]
+    # Безопасно фильтруем товары
+    cat_items = []
+    for item_id, item in products.items():
+        if isinstance(item, dict) and item.get("category") == cat_key:
+            cat_items.append((item_id, item))
     
     markup = telebot.types.InlineKeyboardMarkup()
     is_admin = (int(call.message.chat.id) == int(ADMIN_ID))
     
+    # Если в категории нет товаров
     if not cat_items:
         text = f"📁 Категория: *{CATEGORIES.get(cat_key, 'Товары')}*\n\nВ этой категории пока нет товаров."
         
-        # Если админ — обязательно даем кнопку добавления
         if is_admin:
             markup.add(telebot.types.InlineKeyboardButton("➕ Добавить товар в эту категорию", callback_data=f"admin_add_{cat_key}"))
             
@@ -141,7 +145,7 @@ def view_category_item(call):
     ]
     markup.row(*nav_buttons)
     
-    # 3. Админские кнопки (Добавить, Редактировать, Удалить)
+    # 3. Админские кнопки
     if is_admin:
         markup.add(telebot.types.InlineKeyboardButton("➕ Добавить товар в эту категорию", callback_data=f"admin_add_{cat_key}"))
         markup.add(
