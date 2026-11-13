@@ -53,7 +53,8 @@ def show_main_menu(chat_id):
     markup.add(telebot.types.InlineKeyboardButton("🛒 Корзина", callback_data="view_cart"))
     
     if chat_id == ADMIN_ID:
-        markup.add(telebot.types.InlineKeyboardButton("➕ Добавить товар (Админ)", callback_data="add_product_start"))
+        # Изменили callback_data, чтобы он не пересекался с корзиной
+        markup.add(telebot.types.InlineKeyboardButton("➕ Добавить товар (Админ)", callback_data="admin_new_product"))
         
     text = (
         "Приветствую! Добро пожаловать в мастерскую **Храм Паука**.\n\n"
@@ -132,8 +133,7 @@ def view_item_card(call):
     else:
         bot.send_message(call.message.chat.id, caption, reply_markup=markup, parse_mode="Markdown")
 
-# Добавление в корзину (исключаем технические callback'и, начинающиеся с add_product)
-@bot.callback_query_handler(func=lambda call: call.data.startswith("add_") and not call.data.startswith("add_product"))
+@bot.callback_query_handler(func=lambda call: call.data.startswith("add_"))
 def add_to_cart(call):
     item_id = call.data.replace("add_", "")
     products = load_products()
@@ -216,7 +216,7 @@ def back_to_menu(call):
 
 # --- АДМИНКА ДЛЯ ДОБАВЛЕНИЯ ТОВАРА ---
 
-@bot.callback_query_handler(func=lambda call: call.data == "add_product_start")
+@bot.callback_query_handler(func=lambda call: call.data == "admin_new_product")
 def add_product_start(call):
     bot.answer_callback_query(call.id)
     if call.message.chat.id != ADMIN_ID:
