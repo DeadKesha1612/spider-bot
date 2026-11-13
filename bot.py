@@ -9,10 +9,7 @@ bot = telebot.TeleBot(TOKEN)
 app = Flask(__name__)
 WEBHOOK_URL = f"https://thespidertemplebot.onrender.com/{TOKEN}"
 
-# Твой реальный ID и юзернейм
 ADMIN_ID = 5393257255
-ADMIN_USERNAME = "DeadKesha"
-
 PRODUCTS_FILE = "products.json"
 
 user_carts = {}
@@ -27,14 +24,6 @@ def load_products():
 def save_products(data):
     with open(PRODUCTS_FILE, "w", encoding="utf-8") as f:
         json.dump(data, f, ensure_ascii=False, indent=4)
-
-def is_admin(user):
-    """Жесткая проверка: только ты имеешь доступ к админке"""
-    if user.id == ADMIN_ID:
-        return True
-    if user.username and user.username.lower() == ADMIN_USERNAME.lower():
-        return True
-    return False
 
 @app.route('/')
 def home():
@@ -61,17 +50,22 @@ def send_welcome(message):
         "Здесь ты можешь посмотреть каталог изделий, собрать заказ "
         "и отправить его прямо в чат."
     )
-    show_main_menu(message.chat.id, message.from_user, text)
+    show_main_menu(message.chat.id, message.from_user.id, text)
 
-def show_main_menu(chat_id, user, text):
+def show_main_menu(chat_id, user_id):
     markup = telebot.types.InlineKeyboardMarkup()
     markup.add(telebot.types.InlineKeyboardButton("🛍 Открыть каталог", callback_data="catalog"))
     markup.add(telebot.types.InlineKeyboardButton("🛒 Корзина", callback_data="view_cart"))
     
-    # Кнопка добавления товара показывается СТРОГО ТЕБЕ
-    if is_admin(user):
+    # Показываем кнопку админки, если чат принадлежит тебе (или для теста по ID)
+    if chat_id == ADMIN_ID or user_id == ADMIN_ID:
         markup.add(telebot.types.InlineKeyboardButton("➕ Добавить товар (Админ)", callback_data="add_product_start"))
         
+    text = (
+        "Приветствую! Добро пожаловать в мастерскую **Храм Паука**.\n\n"
+        "Здесь ты можешь посмотреть каталог изделий, собрать заказ "
+        "и отправить его прямо в чат."
+    )
     bot.send_message(chat_id, text, reply_markup=markup, parse_mode="Markdown")
 
 # --- КАТАЛОГ И ПОКУПКИ ---
@@ -219,14 +213,14 @@ def back_to_menu(call):
         bot.delete_message(call.message.chat.id, call.message.message_id)
     except Exception:
         pass
-    show_main_menu(call.message.chat.id, call.from_user, "Главное меню:")
+    show_main_menu(call.message.chat.id, call.from_user.id)
     bot.answer_callback_query(call.id)
 
 # --- АДМИНКА ДЛЯ ДОБАВЛЕНИЯ ТОВАРА ---
 
 @bot.callback_query_handler(func=lambda call: call.data == "add_product_start")
 def add_product_start(call):
-    if not is_admin(call.from_user):
+    if call.message.chat.id != ADMIN_ID and call.from_user.id != ADMIN_ID:
         bot.answer_callback_query(call.id, "❌ У тебя нет прав администратора.", show_alert=True)
         return
         
@@ -239,8 +233,6 @@ def add_product_start(call):
 
 @bot.callback_query_handler(func=lambda call: call.data == "skip_photo")
 def skip_photo(call):
-    if not is_admin(call.from_user):
-        return
     chat_id = call.message.chat.id
     if chat_id in admin_states and admin_states[chat_id]["step"] == "photo":
         admin_states[chat_id]["photo"] = None
@@ -250,7 +242,7 @@ def skip_photo(call):
 
 @bot.message_handler(content_types=['text', 'photo'], func=lambda message: message.chat.id in admin_states)
 def handle_admin_creation(message):
-    if not is_admin(message.from_user):
+    if message.chat.id != ADMIN_ID:
         return
         
     chat_id = message.chat.id
@@ -314,7 +306,7 @@ def handle_admin_creation(message):
         del admin_states[chat_id]
         
         bot.send_message(chat_id, f"🎉 **Товар успешно добавлен в каталог!**\n\n📌 {state['name']} — {state['price']} ₽", parse_mode="Markdown")
-        show_main_menu(chat_id, message.from_user, "Главное меню:")
+        show_main_menu(chat_id, message.from_user.id)
 
 if __name__ == '__main__':
     bot.remove_webhook()
