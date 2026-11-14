@@ -25,6 +25,8 @@ HEADERS = {
 user_carts = {}
 admin_states = {}
 custom_states = {}
+active_orders = {}
+order_counter = 1000
 
 CATEGORIES = {
     "bracelets": "Браслеты",
@@ -579,13 +581,19 @@ def clear_cart(call):
 
 @bot.callback_query_handler(func=lambda call: call.data == "checkout")
 def checkout_order(call):
+    global order_counter
     bot.answer_callback_query(call.id)
     chat_id = call.message.chat.id
     cart = user_carts.get(chat_id, [])
     if not cart:
         return
         
-    order_text = f"🚨 **НОВЫЙ ЗАКАЗ ИЗ КАТАЛОГА!**\n(ID клиента: `{chat_id}`)\n\n"
+    order_id = order_counter
+    order_counter += 1
+    
+    active_orders[order_id] = chat_id
+    
+    order_text = f"🚨 **НОВЫЙ ЗАКАЗ №{order_id}!**\n(ID клиента: `{chat_id}`)\n\n"
     total = 0
     for item in cart:
         name = item.get('name', 'Товар')
@@ -596,10 +604,16 @@ def checkout_order(call):
         total += price
     order_text += f"\n💰 **Сумма:** {total} ₽"
     
-    bot.send_message(chat_id, "✅ **Заказ успешно оформлен!** Спасибо, что выбрали «Храм Паука»!", parse_mode="Markdown")
+    admin_markup = telebot.types.InlineKeyboardMarkup()
+    admin_markup.add(telebot.types.InlineKeyboardButton(
+        f"✅ Заказ №{order_id} готов", 
+        callback_data=f"order_ready_{order_id}"
+    ))
+    
+    bot.send_message(chat_id, f"✅ **Заказ №{order_id} успешно оформлен!** Спасибо, что выбрали «Храм Паука»! Мастер уже принял его в работу.", parse_mode="Markdown")
     
     try:
-        bot.send_message(ADMIN_ID, order_text, parse_mode="Markdown")
+        bot.send_message(ADMIN_ID, order_text, parse_mode="Markdown", reply_markup=admin_markup)
     except Exception as e:
         print(f"Не удалось отправить заказ админу: {e}")
     
@@ -616,6 +630,44 @@ def back_to_menu(call):
     show_main_menu(call.message.chat.id)
 
 # --- АДМИНКА ---
+
+@bot.callback_query_handler(func=lambda call: call.data.startswith("order_ready_"))
+def mark_order_ready(call):
+    if int(call.message.chat.id) != int(ADMIN_ID):
+        bot.answer_callback_query(call.id, "❌ Доступно только администратору.")
+        return
+        
+    order_id = int(call.data.replace("order_ready_", ""))
+    client_chat_id = active_orders.get(order_id)
+    
+    if not client_chat_id:
+        try:
+            text_lines = call.message.text.split("\n")
+            for line in text_lines:
+                if "ID клиента:" in line:
+                    client_chat_id = int(line.replace("ID клиента:", "").replace("`", "").strip())
+        except Exception:
+            pass
+
+    if client_chat_id:
+        try:
+            bot.send_message(
+                client_chat_id, 
+                f"🔥 **Твой заказ №{order_id} готов!**\n\nИзделие успешно создано мастерской «Храм Паука». Свяжись с администратором для уточнения деталей доставки или самовывоза.", 
+                parse_mode="Markdown"
+            )
+            bot.answer_callback_query(call.id, f"✅ Уведомление по заказу №{order_id} отправлено клиенту!")
+        except Exception as e:
+            print(f"Не удалось отправить сообщение клиенту {client_chat_id}: {e}")
+            bot.answer_callback_query(call.id, "⚠️ Заказ отмечен, но не удалось доставить сообщение клиенту.")
+    else:
+        bot.answer_callback_query(call.id, f"✅ Заказ №{order_id} отмечен как готовый (ID клиента не найден).")
+    
+    try:
+        new_text = call.message.text + "\n\n🟢 **СТАТУС: ГОТОВ ✅**"
+        bot.edit_message_text(new_text, call.message.chat.id, call.message.message_id, parse_mode="Markdown")
+    except Exception:
+        pass
 
 @bot.callback_query_handler(func=lambda call: call.data.startswith("admin_add_"))
 def admin_add_start(call):
