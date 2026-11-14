@@ -1,6 +1,6 @@
 import telebot
-import json
 import os
+import requests
 from flask import Flask, request
 
 TOKEN = "9037922529:AAGajC8OlDJCkagMVBEV0qGSivuDRDdYxyk"
@@ -11,9 +11,16 @@ WEBHOOK_URL = f"https://thespidertemplebot.onrender.com/{TOKEN}"
 
 ADMIN_ID = 5393257255
 
-# Указываем абсолютный путь к файлу базы, чтобы Render сохранял его надежнее
-BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-PRODUCTS_FILE = os.path.join(BASE_DIR, "products.json")
+# --- ТВОИ НАСТРОЙКИ SUPABASE ---
+SUPABASE_URL = "https://cztrrtvajptalfjdfpmy.supabase.co"
+SUPABASE_KEY = "sb_publishable_2HnmPT650giFwrbjE8G4IQ_2GYLbPQ-"
+
+HEADERS = {
+    "apikey": SUPABASE_KEY,
+    "Authorization": f"Bearer {SUPABASE_KEY}",
+    "Content-Type": "application/json",
+    "Prefer": "return=representation"
+}
 
 user_carts = {}
 admin_states = {}
@@ -44,33 +51,69 @@ CUSTOM_OPTIONS = {
     }
 }
 
+# --- ФУНКЦИИ РАБОТЫ С SUPABASE ---
+
 def load_products():
-    if not os.path.exists(PRODUCTS_FILE):
-        return {}
+    """Загружает все товары из облачной базы Supabase"""
     try:
-        with open(PRODUCTS_FILE, "r", encoding="utf-8") as f:
-            data = json.load(f)
-            if isinstance(data, dict):
-                return data
+        url = f"{SUPABASE_URL}/rest/v1/products?select=*"
+        response = requests.get(url, headers=HEADERS)
+        if response.status_code == 200:
+            rows = response.json()
+            products_dict = {}
+            for row in rows:
+                p_id = row.get("id")
+                products_dict[p_id] = {
+                    "category": row.get("category"),
+                    "name": row.get("name"),
+                    "photo": row.get("photo"),
+                    "price": row.get("price"),
+                    "material": row.get("material"),
+                    "time": row.get("time")
+                }
+            return products_dict
+        else:
+            print(f"Ошибка загрузки из Supabase: {response.text}")
     except Exception as e:
-        print(f"Ошибка чтения products.json: {e}")
+        print(f"Исключение при запросе в Supabase (load): {e}")
     return {}
 
-def save_products(data):
+def save_product_to_db(item_id, item_data):
+    """Сохраняет или обновляет товар в Supabase"""
     try:
-        temp_file = PRODUCTS_FILE + ".tmp"
-        with open(temp_file, "w", encoding="utf-8") as f:
-            json.dump(data, f, ensure_ascii=False, indent=4)
-        os.replace(temp_file, PRODUCTS_FILE)
+        url = f"{SUPABASE_URL}/rest/v1/products"
+        payload = {
+            "id": item_id,
+            "category": item_data.get("category"),
+            "name": item_data.get("name"),
+            "photo": item_data.get("photo"),
+            "price": item_data.get("price"),
+            "material": item_data.get("material"),
+            "time": item_data.get("time")
+        }
+        headers_upsert = HEADERS.copy()
+        headers_upsert["Prefer"] = "resolution=merge-duplicates"
+        response = requests.post(url, headers=headers_upsert, json=payload)
+        if response.status_code not in [200, 201]:
+            print(f"Ошибка сохранения в Supabase: {response.text}")
     except Exception as e:
-        print(f"Ошибка сохранения products.json: {e}")
+        print(f"Исключение при запросе в Supabase (save): {e}")
 
-if not os.path.exists(PRODUCTS_FILE):
-    save_products({})
+def delete_product_from_db(item_id):
+    """Удаляет товар из Supabase по ID"""
+    try:
+        url = f"{SUPABASE_URL}/rest/v1/products?id=eq.{item_id}"
+        response = requests.delete(url, headers=HEADERS)
+        if response.status_code not in [200, 204]:
+            print(f"Ошибка удаления из Supabase: {response.text}")
+    except Exception as e:
+        print(f"Исключение при запросе в Supabase (delete): {e}")
+
+# --- WEB & TELEGRAM ROUTES ---
 
 @app.route('/')
 def home():
-    return "Hram Pauka Bot is running!"
+    return "Hram Pauka Bot (Supabase edition) is running!"
 
 @app.route(f'/{TOKEN}', methods=['POST'])
 def webhook():
@@ -92,29 +135,6 @@ def send_welcome(message):
     if chat_id in custom_states:
         del custom_states[chat_id]
     show_main_menu(chat_id)
-
-@bot.message_handler(commands=['backup'])
-def send_backup(message):
-    if int(message.chat.id) != int(ADMIN_ID):
-        return
-    if os.path.exists(PRODUCTS_FILE):
-        with open(PRODUCTS_FILE, "rb") as f:
-            bot.send_document(message.chat.id, f, caption="📦 Твой актуальный файл базы товаров (products.json). Сохрани его на случай перезагрузки сервера!")
-    else:
-        bot.send_message(message.chat.id, "❌ Файл products.json пока пуст или не найден.")
-
-# Обработчик для восстановления базы через отправку файла администратором
-@bot.message_handler(content_types=['document'], func=lambda message: int(message.chat.id) == int(ADMIN_ID))
-def restore_backup(message):
-    if message.document.file_name and "products.json" in message.document.file_name:
-        try:
-            file_info = bot.get_file(message.document.file_id)
-            downloaded_file = bot.download_file(file_info.file_path)
-            with open(PRODUCTS_FILE, "wb") as f:
-                f.write(downloaded_file)
-            bot.send_message(message.chat.id, "✅ База товаров успешно восстановлена из отправленного файла!")
-        except Exception as e:
-            bot.send_message(message.chat.id, f"❌ Ошибка при восстановлении базы: {e}")
 
 def show_main_menu(chat_id):
     markup = telebot.types.InlineKeyboardMarkup()
@@ -581,7 +601,7 @@ def back_to_menu(call):
         del custom_states[call.message.chat.id]
     show_main_menu(call.message.chat.id)
 
-# --- АДМИНКА ---
+# --- АДМИНКА (С СОХРАНЕНИЕМ В SUPABASE) ---
 
 @bot.callback_query_handler(func=lambda call: call.data.startswith("admin_add_"))
 def admin_add_start(call):
@@ -607,13 +627,8 @@ def admin_delete_item(call):
     index = int(parts[1])
     item_id = "_".join(parts[2:])
     
-    products = load_products()
-    if item_id in products:
-        del products[item_id]
-        save_products(products)
-        bot.answer_callback_query(call.id, "✅ Товар успешно удален!")
-    else:
-        bot.answer_callback_query(call.id, "❌ Товар не найден в базе.")
+    delete_product_from_db(item_id)
+    bot.answer_callback_query(call.id, "✅ Товар успешно удален!")
     
     call.data = f"cat_{cat_key}_{index}"
     view_category_item(call)
@@ -702,10 +717,8 @@ def handle_admin_flow(message):
             text_val = message.text.strip() if message.text else "1-2 дня"
             state["time"] = text_val
             
-            products = load_products()
             item_id = f"item_{int(os.urandom(3).hex(), 16)}"
-            
-            products[item_id] = {
+            item_data = {
                 "category": state["category"],
                 "name": state["name"],
                 "photo": state.get("photo"),
@@ -714,13 +727,13 @@ def handle_admin_flow(message):
                 "time": state["time"]
             }
             
-            save_products(products)
+            save_product_to_db(item_id, item_data)
             cat_key = state["category"]
             
             if chat_id in admin_states:
                 del admin_states[chat_id]
             
-            bot.send_message(chat_id, f"🎉 Товар успешно добавлен в категорию «{CATEGORIES.get(cat_key)}»!")
+            bot.send_message(chat_id, f"🎉 Товар успешно добавлен в категорию «{CATEGORIES.get(cat_key)}» и сохранен в облаке!")
             show_main_menu(chat_id)
             return
 
@@ -737,17 +750,11 @@ def handle_admin_flow(message):
             
         elif step == "price":
             try:
-                state["new_price"] = int(message.text.script() if hasattr(message.text, 'script') else int(message.text.strip()))
+                state["new_price"] = int(message.text.strip())
                 state["step"] = "material"
                 bot.send_message(chat_id, f"🧵 Шаг 3/3: Укажи новый материал (текущий: {item.get('material')}):")
             except ValueError:
-                # Фикс на случай опечатки в оригинале
-                try:
-                    state["new_price"] = int(message.text.strip())
-                    state["step"] = "material"
-                    bot.send_message(chat_id, f"🧵 Шаг 3/3: Укажи новый материал (текущий: {item.get('material')}):")
-                except ValueError:
-                    bot.send_message(chat_id, "❌ Цена должна быть числом. Повтори ввод:")
+                bot.send_message(chat_id, "❌ Цена должна быть числом. Повтори ввод:")
             return
                 
         elif step == "material":
@@ -759,13 +766,12 @@ def handle_admin_flow(message):
             item["price"] = state["new_price"]
             item["material"] = message.text.strip()
             
-            products[item_id] = item
-            save_products(products)
+            save_product_to_db(item_id, item)
             
             if chat_id in admin_states:
                 del admin_states[chat_id]
             
-            bot.send_message(chat_id, "✅ Товар успешно обновлен!")
+            bot.send_message(chat_id, "✅ Товар успешно обновлен в облаке!")
             show_main_menu(chat_id)
             return
 
