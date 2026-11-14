@@ -11,7 +11,7 @@ WEBHOOK_URL = f"https://thespidertemplebot.onrender.com/{TOKEN}"
 
 ADMIN_ID = 5393257255
 
-# --- ТВОИ НАСТРОЙКИ SUPABASE ---
+# --- НАСТРОЙКИ SUPABASE ---
 SUPABASE_URL = "https://cztrrtvajptalfjdfpmy.supabase.co"
 SUPABASE_KEY = "sb_publishable_2HnmPT650giFwrbjE8G4IQ_2GYLbPQ-"
 
@@ -58,6 +58,7 @@ def load_products():
     try:
         url = f"{SUPABASE_URL}/rest/v1/products?select=*"
         response = requests.get(url, headers=HEADERS)
+        print(f"DEBUG LOAD STATUS: {response.status_code}, BODY: {response.text}")
         if response.status_code == 200:
             rows = response.json()
             products_dict = {}
@@ -79,7 +80,7 @@ def load_products():
     return {}
 
 def save_product_to_db(item_id, item_data):
-    """Сохраняет или обновляет товар в Supabase"""
+    """Сохраняет или обновляет товар в Supabase и сообщает об ошибке в чат админу"""
     try:
         url = f"{SUPABASE_URL}/rest/v1/products"
         payload = {
@@ -94,10 +95,26 @@ def save_product_to_db(item_id, item_data):
         headers_upsert = HEADERS.copy()
         headers_upsert["Prefer"] = "resolution=merge-duplicates"
         response = requests.post(url, headers=headers_upsert, json=payload)
+        
+        print(f"DEBUG SAVE STATUS: {response.status_code}, BODY: {response.text}")
+        
         if response.status_code not in [200, 201]:
-            print(f"Ошибка сохранения в Supabase: {response.text}")
+            error_msg = f"❌ Ошибка Supabase ({response.status_code}): {response.text}"
+            print(error_msg)
+            try:
+                bot.send_message(ADMIN_ID, error_msg)
+            except Exception:
+                pass
+            return False
+        return True
     except Exception as e:
-        print(f"Исключение при запросе в Supabase (save): {e}")
+        error_msg = f"❌ Исключение Python при сохранении: {e}"
+        print(error_msg)
+        try:
+            bot.send_message(ADMIN_ID, error_msg)
+        except Exception:
+            pass
+        return False
 
 def delete_product_from_db(item_id):
     """Удаляет товар из Supabase по ID"""
@@ -241,7 +258,7 @@ def view_category_item(call):
     else:
         bot.send_message(call.message.chat.id, text, parse_mode="Markdown", reply_markup=markup)
 
-# --- ИНТЕРАКТИВНЫЙ КОНСТРУКТОР (КАСТОМ) ---
+# --- ИНТЕРАКТИВНЫЙ КОНСТРУКТОР ---
 
 @bot.callback_query_handler(func=lambda call: call.data.startswith("custom_start_"))
 def custom_start(call):
@@ -364,7 +381,6 @@ def custom_back_paracord(call):
     bot.answer_callback_query(call.id)
     show_custom_paracord_menu(call.message.chat.id, call.message.message_id)
 
-# ШАГ 2: ВЫБОР БУСИНЫ
 @bot.callback_query_handler(func=lambda call: call.data == "custom_step_bead")
 def custom_step_bead(call):
     bot.answer_callback_query(call.id)
@@ -402,7 +418,6 @@ def custom_back_to_paracord(call):
     bot.answer_callback_query(call.id)
     show_custom_paracord_menu(call.message.chat.id, call.message.message_id)
 
-# ШАГ 3: ВЫБОР ЗАСТЕЖКИ
 @bot.callback_query_handler(func=lambda call: call.data == "custom_step_clasp")
 def custom_step_clasp(call):
     bot.answer_callback_query(call.id)
@@ -438,7 +453,6 @@ def set_clasp(call):
         custom_states[chat_id]["clasp_price"] = CUSTOM_OPTIONS["clasps"].get(clasp_name, 0)
     custom_step_clasp(call)
 
-# ШАГ 4: СУПЕР-НАГЛЯДНЫЙ ИТОГ, РАЗДЕЛИТЕЛИ И КОРЗИНА
 @bot.callback_query_handler(func=lambda call: call.data in ["custom_step_summary", "custom_toggle_spacers"])
 def custom_step_summary(call):
     bot.answer_callback_query(call.id)
@@ -601,7 +615,7 @@ def back_to_menu(call):
         del custom_states[call.message.chat.id]
     show_main_menu(call.message.chat.id)
 
-# --- АДМИНКА (С СОХРАНЕНИЕМ В SUPABASE) ---
+# --- АДМИНКА ---
 
 @bot.callback_query_handler(func=lambda call: call.data.startswith("admin_add_"))
 def admin_add_start(call):
@@ -727,13 +741,17 @@ def handle_admin_flow(message):
                 "time": state["time"]
             }
             
-            save_product_to_db(item_id, item_data)
+            success = save_product_to_db(item_id, item_data)
             cat_key = state["category"]
             
             if chat_id in admin_states:
                 del admin_states[chat_id]
             
-            bot.send_message(chat_id, f"🎉 Товар успешно добавлен в категорию «{CATEGORIES.get(cat_key)}» и сохранен в облаке!")
+            if success:
+                bot.send_message(chat_id, f"🎉 Товар успешно добавлен в категорию «{CATEGORIES.get(cat_key)}» и сохранен в облаке!")
+            else:
+                bot.send_message(chat_id, "⚠️ Ошибка сохранения в облако. Проверь личные сообщения — туда отправлен текст ошибки.")
+                
             show_main_menu(chat_id)
             return
 
