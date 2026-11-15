@@ -2,6 +2,7 @@ import telebot
 import os
 import json
 import requests
+from flask import Flask, request
 
 TOKEN = "9263601739:AAFIjFxcaOPi0T4SWR-9eF262TAkoAKyCn0"
 bot = telebot.TeleBot(TOKEN)
@@ -78,10 +79,8 @@ def load_products():
                     "color_photos": c_photos or {}
                 }
             return products_dict
-        else:
-            print(f"Ошибка загрузки из Supabase: {response.text}")
     except Exception as e:
-        print(f"Исключение при запросе в Supabase (load): {e}")
+        print(f"Ошибка загрузки из Supabase: {e}")
     return {}
 
 def get_next_order_number():
@@ -181,8 +180,6 @@ def show_main_menu(chat_id, message_id=None):
         except Exception:
             pass
     bot.send_message(chat_id, text, reply_markup=markup, reply_markup_keyboard=reply_kb)
-
-# --- КАТАЛОГ И КАТЕГОРИИ ---
 
 @bot.callback_query_handler(func=lambda call: call.data == "catalog")
 def open_catalog(call):
@@ -307,8 +304,6 @@ def send_item_card(chat_id, item_id, item, index, cat_items, edit_message_id=Non
         bot.send_photo(chat_id, current_photo, caption=text, reply_markup=markup)
     else:
         bot.send_message(chat_id, text, reply_markup=markup)
-
-# --- ИНТЕРАКТИВНЫЙ КОНСТРУКТОР ---
 
 @bot.callback_query_handler(func=lambda call: call.data.startswith("custom_start_"))
 def custom_start(call):
@@ -663,8 +658,6 @@ def custom_add_to_cart(call):
     call.data = "view_cart"
     view_cart(call)
 
-# --- КОРЗИНА И ЗАКАЗЫ ---
-
 @bot.callback_query_handler(func=lambda call: call.data.startswith("cart_add_"))
 def add_to_cart(call):
     item_id = call.data.replace("cart_add_", "")
@@ -816,8 +809,6 @@ def back_to_menu(call):
     clear_user_states(chat_id)
     show_main_menu(chat_id, call.message.message_id)
 
-# --- АДМИНКА ---
-
 @bot.callback_query_handler(func=lambda call: call.data.startswith("order_ready_"))
 def mark_order_ready(call):
     if int(call.message.chat.id) != int(ADMIN_ID):
@@ -944,7 +935,6 @@ def handle_text_and_flows(message):
     except Exception:
         pass
 
-    # 1. ВВОД ЗАМЕРА ДЛЯ ГОТОВОГО ТОВАРА ИЗ КАТАЛОГА
     if chat_id in size_states:
         if not text_content:
             return
@@ -978,7 +968,6 @@ def handle_text_and_flows(message):
         bot.send_message(chat_id, done_text, reply_markup=markup)
         return
 
-    # 2. КАСТОМ
     if chat_id in custom_states:
         state = custom_states[chat_id]
         if state.get("step") == "measure":
@@ -988,7 +977,6 @@ def handle_text_and_flows(message):
             render_custom_summary(chat_id)
             return
 
-    # 3. АДМИНКА
     if chat_id in admin_states and int(chat_id) == int(ADMIN_ID):
         state = admin_states[chat_id]
         action = state.get("action")
@@ -1149,11 +1137,29 @@ def handle_text_and_flows(message):
                 show_main_menu(chat_id)
                 return
 
+# --- МИНИ-СЕРВЕР FLASK ДЛЯ УДЕРЖАНИЯ ПОРТА НА RENDER ---
+app = Flask(__name__)
+
+@app.route('/')
+def home():
+    return "Bot is running!"
+
+def run_flask():
+    port = int(os.environ.get("PORT", 10000))
+    app.run(host="0.0.0.0", port=port)
+
 if __name__ == '__main__':
+    # Сбрасываем вебхуки для корректной работы Long Polling
     try:
         requests.get(f"https://api.telegram.org/bot{TOKEN}/deleteWebhook?drop_pending_updates=true")
     except Exception:
         pass
         
-    print("Бот успешно запущен и слушает Telegram...")
+    import threading
+    # Запускаем Flask в отдельном потоке, чтобы он занимал порт Render
+    flask_thread = threading.Thread(target=run_flask)
+    flask_thread.daemon = True
+    flask_thread.start()
+    
+    print("Бот и Flask-сервер запущены...")
     bot.infinity_polling(skip_pending=True)
