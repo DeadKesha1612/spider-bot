@@ -952,20 +952,11 @@ def skip_photo(call):
             sent = bot.send_message(chat_id, text, reply_markup=markup)
             admin_states[chat_id]["msg_id"] = sent.message_id
 
-@bot.message_handler(content_types=['text', 'photo', 'document'], func=lambda message: True)
+# ИСПРАВЛЕННЫЙ ТЕКСТОВЫЙ ХЕНДЛЕР (реагирует только на активные шаги ввода, не блокируя /start)
+@bot.message_handler(content_types=['text', 'photo', 'document'], func=lambda message: message.chat.id in admin_states or message.chat.id in custom_states or message.chat.id in size_states)
 def handle_text_and_flows(message):
     chat_id = message.chat.id
     text_content = message.text.strip() if message.text else ""
-
-    if text_content in ["/start", "🕷 Запустить Храм Паука"]:
-        try:
-            bot.delete_message(chat_id, message.message_id)
-        except Exception:
-            pass
-        user_carts[chat_id] = []
-        clear_user_states(chat_id)
-        show_main_menu(chat_id)
-        return
 
     try:
         bot.delete_message(chat_id, message.message_id)
