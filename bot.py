@@ -353,39 +353,37 @@ def finalize_order(chat_id, cart, message_id=None):
     admin_text += f"\n💰 Итого: {total} ₽"
     
     admin_markup = telebot.types.InlineKeyboardMarkup()
-    admin_markup.add(telebot.types.InlineKeyboardButton("✅ Заказ готов", callback_data=f"order_ready_{order_id}_{chat_id}"))
+    admin_markup.add(telebot.types.InlineKeyboardButton("✅ Заказ готов", callback_data=f"ready_{order_id}_{chat_id}"))
 
     try:
         bot.send_message(ADMIN_ID, admin_text, parse_mode="Markdown", reply_markup=admin_markup)
+        print(f"Уведомление админу по заказу №{order_id} отправлено успешно.")
     except Exception as e:
         print(f"Ошибка отправки уведомления админу: {e}")
 
     user_carts[chat_id] = []
 
 # ОБРАБОТЧИК КНОПКИ «ЗАКАЗ ГОТОВ» ДЛЯ АДМИНА
-@bot.callback_query_handler(func=lambda call: call.data.startswith("order_ready_"))
+@bot.callback_query_handler(func=lambda call: call.data.startswith("ready_"))
 def mark_order_ready(call):
     bot.answer_callback_query(call.id, "Статус обновлен!")
     parts = call.data.split("_")
-    order_id = parts[2]
-    client_id = parts[3]
+    order_id = parts[1]
+    client_id = parts[2]
 
-    # Обновляем статус в базе
     update_order_status_in_db(order_id, "ready")
 
-    # Уведомляем клиента
     try:
         bot.send_message(int(client_id), f"🎉 Твой заказ №{order_id} готов! Мастер связался с тобой или ждет для выдачи.")
     except Exception as e:
         print(f"Не удалось отправить уведомление клиенту: {e}")
 
-    # Меняем кнопку у админа, чтобы показать, что заказ выполнен
     try:
         markup = telebot.types.InlineKeyboardMarkup()
-        markup.add(telebot.types.InlineKeyboardButton("✅ Заказ готов (Выполнено)", callback_data="noop"))
+        markup.add(telebot.types.InlineKeyboardButton("✅ Выполнено", callback_data="noop"))
         bot.edit_message_reply_markup(call.message.chat.id, call.message.message_id, reply_markup=markup)
-    except Exception:
-        pass
+    except Exception as e:
+        print(f"Ошибка изменения кнопки у админа: {e}")
 
 @bot.callback_query_handler(func=lambda call: call.data == "main_menu")
 def back_to_menu(call):
