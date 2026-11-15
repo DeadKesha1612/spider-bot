@@ -270,6 +270,8 @@ def checkout_order(call):
     if not cart:
         return
     
+    real_user = call.from_user
+    
     bracelet_indices = []
     for idx, item in enumerate(cart):
         cat = str(item.get("category", "")).lower()
@@ -283,11 +285,11 @@ def checkout_order(call):
             "indices": bracelet_indices,
             "current_idx": 0,
             "message_id": message.message_id,
-            "user": message.from_user
+            "user": real_user
         }
         ask_next_wrist_size(chat_id)
     else:
-        finalize_direct_order(chat_id, message.from_user, cart, message.message_id)
+        finalize_direct_order(chat_id, real_user, cart, message.message_id)
 
 def ask_next_wrist_size(chat_id):
     state = checkout_states.get(chat_id)
@@ -325,7 +327,7 @@ def process_wrist_size_input(message):
         ask_next_wrist_size(chat_id)
     else:
         cart = state["cart"]
-        user_info = state.get("user") or message.from_user
+        user_info = state.get("user")
         clear_user_states(chat_id)
         
         order_id = get_next_order_number()
@@ -339,7 +341,8 @@ def process_wrist_size_input(message):
         if username:
             customer_str = f"@{username}"
         else:
-            customer_str = f"ID: {chat_id}"
+            first_name = getattr(user_info, 'first_name', 'Клиент')
+            customer_str = f"[{first_name}](tg://user?id={chat_id})"
 
         admin_text = (
             f"🔥 Новый заказ №{order_id}!\n"
@@ -354,7 +357,7 @@ def process_wrist_size_input(message):
         admin_markup.add(telebot.types.InlineKeyboardButton("✅ Заказ готов", callback_data=f"ready_{order_id}_{chat_id}"))
 
         try:
-            bot.send_message(ADMIN_ID, admin_text, reply_markup=admin_markup)
+            bot.send_message(ADMIN_ID, admin_text, parse_mode="Markdown", reply_markup=admin_markup)
             print(f"Уведомление админу по заказу №{order_id} отправлено.")
         except Exception as e:
             print(f"Ошибка отправки уведомления админу: {e}")
@@ -384,7 +387,8 @@ def finalize_direct_order(chat_id, user_obj, cart, message_id=None):
     if username:
         customer_str = f"@{username}"
     else:
-        customer_str = f"ID: {chat_id}"
+        first_name = getattr(user_obj, 'first_name', 'Клиент')
+        customer_str = f"[{first_name}](tg://user?id={chat_id})"
 
     admin_text = (
         f"🔥 Новый заказ №{order_id}!\n"
@@ -399,7 +403,7 @@ def finalize_direct_order(chat_id, user_obj, cart, message_id=None):
     admin_markup.add(telebot.types.InlineKeyboardButton("✅ Заказ готов", callback_data=f"ready_{order_id}_{chat_id}"))
 
     try:
-        bot.send_message(ADMIN_ID, admin_text, reply_markup=admin_markup)
+        bot.send_message(ADMIN_ID, admin_text, parse_mode="Markdown", reply_markup=admin_markup)
         print(f"Уведомление админу по заказу №{order_id} отправлено успешно.")
     except Exception as e:
         print(f"Ошибка отправки уведомления админу: {e}")
