@@ -2,9 +2,7 @@ import telebot
 import os
 import json
 import requests
-from http.server import HTTPServer, BaseHTTPRequestHandler
-import threading
-import time
+from flask import Flask, request
 
 TOKEN = "9263601739:AAFhakRpWA0uOrev0vQ7TRRk2iFLOMdn5Y8"
 bot = telebot.TeleBot(TOKEN)
@@ -178,6 +176,7 @@ def view_category_item(call):
     material = item.get('material', 'Не указан')
     time_val = item.get('time', 'Не указан')
     current_photo = item.get("photo")
+    category = str(item.get("category", "")).lower()
     
     text = (
         f"📌 {name}\n\n"
@@ -187,7 +186,12 @@ def view_category_item(call):
     )
     
     markup = telebot.types.InlineKeyboardMarkup()
-    markup.add(telebot.types.InlineKeyboardButton("🛒 Добавить в корзину", callback_data=f"cart_add_{item_id}"))
+    
+    # Если это браслет, запрашиваем размер запястья
+    if "браслет" in category or "bracelet" in category:
+        markup.add(telebot.types.InlineKeyboardButton("📏 Указать размер запястья", callback_data=f"size_req_{item_id}"))
+    else:
+        markup.add(telebot.types.InlineKeyboardButton("🛒 Добавить в корзину", callback_data=f"cart_add_{item_id}"))
     
     nav_buttons = [
         telebot.types.InlineKeyboardButton("⬅️ Назад", callback_data=f"cat_{cat_key}_{index - 1}"),
@@ -212,6 +216,45 @@ def view_category_item(call):
             bot.send_photo(call.message.chat.id, current_photo, caption=text, reply_markup=markup)
         else:
             bot.send_message(call.message.chat.id, text, reply_markup=markup)
+
+@bot.callback_query_handler(func=lambda call: call.data.startswith("size_req_"))
+def request_wrist_size(call):
+    bot.answer_callback_query(call.id)
+    item_id = call.data.replace("size_req_", "")
+    size_states[call.message.chat.id] = item_id
+    
+    text = "📏 Введи размер твоего запястья в сантиметрах (например, 18 см):"
+    markup = telebot.types.InlineKeyboardMarkup()
+    markup.add(telebot.types.InlineKeyboardButton("❌ Отмена", callback_data="catalog"))
+    
+    try:
+        bot.edit_message_text(text, call.message.chat.id, call.message.message_id, reply_markup=markup)
+    except Exception:
+        bot.send_message(call.message.chat.id, text, reply_markup=markup)
+
+@bot.message_handler(func=lambda msg: msg.chat.id in size_states)
+def save_wrist_size(message):
+    chat_id = message.chat.id
+    item_id = size_states.pop(chat_id, None)
+    size_text = message.text.strip()
+    
+    products = load_products()
+    item = products.get(item_id)
+    
+    if item:
+        # Создаем копию товара с учетом указанного размера
+        item_copy = item.copy()
+        item_copy['name'] = f"{item.get('name')} (Запястье: {size_text})"
+        
+        if chat_id not in user_carts:
+            user_carts[chat_id] = []
+        user_carts[chat_id].append(item_copy)
+        
+        bot.send_message(chat_id, f"✅ Браслет с размером запястья *{size_text}* добавлен в корзину!", parse_mode="Markdown")
+    else:
+        bot.send_message(chat_id, "❌ Ошибка: товар не найден.")
+        
+    show_main_menu(chat_id)
 
 @bot.callback_query_handler(func=lambda call: call.data.startswith("cart_add_"))
 def add_to_cart(call):
@@ -279,36 +322,28 @@ def back_to_menu(call):
     bot.answer_callback_query(call.id)
     show_main_menu(call.message.chat.id, call.message.message_id)
 
-# --- МИНИ-СЕРВЕР ДЛЯ УДЕРЖАНИЯ ПОРТА НА RENDER ---
-class SimpleHandler(BaseHTTPRequestHandler):
-    def do_GET(self):
-        self.send_response(200)
-        self.end_headers()
-        self.wfile.write(b"Bot is active via Long Polling!")
-    def log_message(self, format, *args):
-        pass
+# --- FLASK СЕРВЕР ДЛЯ ВЕБХУКОВ ---
+app = Flask(__name__)
 
-def run_server():
-    port = int(os.environ.get("PORT", 10000))
-    server = HTTPServer(("0.0.0.0", port), SimpleHandler)
-    server.serve_forever()
+@app.route(f"/{TOKEN}", methods=['POST'])
+def webhook():
+    if request.headers.get('content-type') == 'application/json':
+        json_string = request.get_data().decode('utf-8')
+        update = telebot.types.Update.de_json(json_string)
+        bot.process_new_updates([update])
+        return "!", 200
+    else:
+        return "Invalid", 403
+
+@app.route('/')
+def index():
+    return "Bot is running on Webhook!"
 
 if __name__ == '__main__':
-    try:
-        bot.remove_webhook()
-        requests.get(f"https://api.telegram.org/bot{TOKEN}/deleteWebhook?drop_pending_updates=true")
-        print("Вебхук и старые сессии сброшены.")
-    except Exception as e:
-        print(f"Ошибка сброса: {e}")
+    WEBHOOK_URL = f"https://thespidertemplebot.onrender.com/{TOKEN}"
+    bot.remove_webhook()
+    bot.set_webhook(url=WEBHOOK_URL)
+    print(f"Вебхук автоматически установлен на: {WEBHOOK_URL}")
 
-    server_thread = threading.Thread(target=run_server)
-    server_thread.daemon = True
-    server_thread.start()
-
-    print("Запуск поллинга с защитой от конфликтов...")
-    while True:
-        try:
-            bot.infinity_polling(none_stop=True, interval=1, timeout=30, long_polling_timeout=30)
-        except Exception as e:
-            print(f"Ошибка в поллинге: {e}. Переподключение через 5 секунд...")
-            time.sleep(5)
+    port = int(os.environ.get("PORT", 10000))
+    app.run(host="0.0.0.0", port=port)
