@@ -327,7 +327,7 @@ def process_wrist_size_input(message):
         ask_next_wrist_size(chat_id)
     else:
         cart = state["cart"]
-        user_info = state.get("user")
+        user_info = state.get("user") or message.from_user
         clear_user_states(chat_id)
         
         order_id = get_next_order_number()
@@ -337,12 +337,15 @@ def process_wrist_size_input(message):
         bot.send_message(chat_id, f"✅ Заказ №{order_id} успешно оформлен! Мастер принял его в работу.", reply_markup=get_reply_markup())
         show_main_menu(chat_id)
 
+        # Жесткая логика: если есть юзернейм, пишем его (он кликабельный в тг по стандарту @username), 
+        # если юзернейма нет — делаем кликабельную ссылку на ID по имени
         username = getattr(user_info, 'username', None)
-        if username:
+        if username and username.lower() != (bot.get_me().username or "").lower():
             customer_str = f"@{username}"
         else:
-            first_name = getattr(user_info, 'first_name', 'Клиент')
-            customer_str = f"[{first_name}](tg://user?id={chat_id})"
+            first_name = getattr(user_info, 'first_name', None) or "Клиент"
+            safe_name = first_name.replace("[", "").replace("]", "")
+            customer_str = f"[{safe_name}](tg://user?id={chat_id})"
 
         admin_text = (
             f"🔥 Новый заказ №{order_id}!\n"
@@ -384,11 +387,12 @@ def finalize_direct_order(chat_id, user_obj, cart, message_id=None):
         show_main_menu(chat_id)
 
     username = getattr(user_obj, 'username', None)
-    if username:
+    if username and username.lower() != (bot.get_me().username or "").lower():
         customer_str = f"@{username}"
     else:
-        first_name = getattr(user_obj, 'first_name', 'Клиент')
-        customer_str = f"[{first_name}](tg://user?id={chat_id})"
+        first_name = getattr(user_obj, 'first_name', None) or "Клиент"
+        safe_name = first_name.replace("[", "").replace("]", "")
+        customer_str = f"[{safe_name}](tg://user?id={chat_id})"
 
     admin_text = (
         f"🔥 Новый заказ №{order_id}!\n"
@@ -452,7 +456,7 @@ def webhook():
 
 @app.route('/')
 def index():
-    return "Bot is running on Webhook!"
+    return "Bot is running on Webhook!")
 
 if __name__ == '__main__':
     WEBHOOK_URL = f"https://thespidertemplebot.onrender.com/{TOKEN}"
