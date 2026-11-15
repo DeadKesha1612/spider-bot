@@ -698,8 +698,7 @@ def admin_add_start(call):
     admin_states[call.message.chat.id] = {
         "action": "add", 
         "category": cat_key, 
-        "step": "name",
-        "temp_data": {}
+        "step": "name"
     }
     markup = telebot.types.InlineKeyboardMarkup()
     markup.add(telebot.types.InlineKeyboardButton("❌ Отмена", callback_data="catalog"))
@@ -793,7 +792,6 @@ def handle_admin_flow(message):
                 bot.send_message(chat_id, "❌ Введи цвет текстом:")
                 return
             color_val = message.text.strip()
-            # Объединяем материал и цвет в одну строку для карточки
             base_mat = state.get("material", "")
             state["material"] = f"{base_mat}, Цвет: {color_val}"
             state["step"] = "price"
@@ -809,7 +807,7 @@ def handle_admin_flow(message):
                 state["step"] = "time"
                 bot.send_message(chat_id, "⏱ Шаг 6/6: Укажи срок изготовления (например: 1-2 дня):")
             except ValueError:
-                bot.send_message(chat_id, "❌ Цена должна быть числом. Повтори ввод:")
+                bot.send_message(chat_id, "❌ Ошибка! Цена должна быть целым числом (например: 600). Повтори ввод цены:")
             return
                 
         elif step == "time":
