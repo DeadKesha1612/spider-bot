@@ -110,19 +110,10 @@ def save_product_to_db(item_id, item_data):
         if response.status_code not in [200, 201]:
             error_msg = f"❌ Ошибка Supabase ({response.status_code}): {response.text}"
             print(error_msg)
-            try:
-                bot.send_message(ADMIN_ID, error_msg)
-            except Exception:
-                pass
             return False
         return True
     except Exception as e:
-        error_msg = f"❌ Исключение Python при сохранении: {e}"
-        print(error_msg)
-        try:
-            bot.send_message(ADMIN_ID, error_msg)
-        except Exception:
-            pass
+        print(f"Исключение Python при сохранении: {e}")
         return False
 
 def delete_product_from_db(item_id):
@@ -158,6 +149,13 @@ def send_welcome(message):
         del admin_states[chat_id]
     if chat_id in custom_states:
         del custom_states[chat_id]
+    
+    # Удаляем сообщение пользователя с командой /start для чистоты диалога
+    try:
+        bot.delete_message(chat_id, message.message_id)
+    except Exception:
+        pass
+        
     show_main_menu(chat_id)
 
 def show_main_menu(chat_id, message_id=None):
@@ -282,7 +280,12 @@ def send_item_card(chat_id, item_id, item, index, cat_items, edit_message_id=Non
                 media = telebot.types.InputMediaPhoto(current_photo, caption=text)
                 bot.edit_message_media(media, chat_id, edit_message_id, reply_markup=markup)
             else:
-                bot.edit_message_text(text, chat_id, edit_message_id, reply_markup=markup)
+                # Если у товара нет фото, а прошлое сообщение было с фото, Telegram требует удалить и отправить текст или использовать edit_message_text
+                try:
+                    bot.edit_message_text(text, chat_id, edit_message_id, reply_markup=markup)
+                except Exception:
+                    bot.delete_message(chat_id, edit_message_id)
+                    bot.send_message(chat_id, text, reply_markup=markup)
             return
         except Exception:
             pass
@@ -748,16 +751,19 @@ def admin_add_start(call):
     admin_states[call.message.chat.id] = {
         "action": "add", 
         "category": cat_key, 
-        "step": "name"
+        "step": "name",
+        "msg_id": call.message.message_id
     }
     markup = telebot.types.InlineKeyboardMarkup()
     markup.add(telebot.types.InlineKeyboardButton("❌ Отмена", callback_data="catalog"))
     
     text = f"✍️ [Добавление в «{CATEGORIES.get(cat_key)}»] Шаг 1/6: Напиши название товара:"
     try:
-        bot.edit_message_text(text, call.message.chat.id, call.message.message_id, reply_markup=markup)
+        # Если прошлое сообщение было с фото, бот удалит его и создаст текстовое, чтобы не было ошибки медиаконтейнера
+        bot.delete_message(call.message.chat.id, call.message.message_id)
     except Exception:
-        bot.send_message(call.message.chat.id, text, reply_markup=markup)
+        pass
+    bot.send_message(call.message.chat.id, text, reply_markup=markup)
 
 @bot.callback_query_handler(func=lambda call: call.data.startswith("admin_del_"))
 def admin_delete_item(call):
@@ -801,25 +807,31 @@ def skip_photo(call):
         admin_states[chat_id]["step"] = "material"
         text = "🧵 Шаг 3/6: Укажи материал (например: Паракорд 550):"
         try:
-            bot.edit_message_text(text, chat_id, call.message.message_id)
+            bot.delete_message(chat_id, call.message.message_id)
         except Exception:
-            bot.send_message(chat_id, text)
+            pass
+        markup = telebot.types.InlineKeyboardMarkup()
+        markup.add(telebot.types.InlineKeyboardButton("❌ Отмена", callback_data="catalog"))
+        bot.send_message(chat_id, text, reply_markup=markup)
 
 @bot.message_handler(content_types=['text', 'photo', 'document'], func=lambda message: message.chat.id in admin_states or message.chat.id in custom_states)
 def handle_text_and_flows(message):
     chat_id = message.chat.id
+
+    # Удаляем сообщение с вводом от админа/пользователя, чтобы диалог был абсолютно чистым
+    try:
+        bot.delete_message(chat_id, message.message_id)
+    except Exception:
+        pass
 
     # 1. ОБРАБОТКА ШАГОВ КАСТОМА (ДЛЯ ПОКУПАТЕЛЕЙ)
     if chat_id in custom_states:
         state = custom_states[chat_id]
         if state.get("step") == "wrist":
             if not message.text:
-                bot.send_message(chat_id, "❌ Введи обхват запястья цифрами (например: 18):")
                 return
             state["wrist_size"] = message.text.strip()
             
-            # После ввода запястья автоматически переходим к итогу кастома
-            # Создаем фейковый объект call, чтобы дернуть функцию сводки
             class DummyCall:
                 def __init__(self, msg):
                     self.message = msg
@@ -832,22 +844,41 @@ def handle_text_and_flows(message):
             custom_step_summary(call)
             return
 
-    # 2. ОБРАБОТКА АДМИНСКИХ ШАГОВ
+    # 2. ОБРАБОТКА АДМИНСКИХ ШАГОВ (РЕДАКТИРУЕМ ТО САМОЕ СООБЩЕНИЕ ИЛИ ШЛЕМ ОДНО)
     if chat_id in admin_states and int(chat_id) == int(ADMIN_ID):
         state = admin_states[chat_id]
         action = state.get("action")
         step = state.get("step")
+        target_msg_id = state.get("msg_id")
+
+        def update_admin_prompt(new_text, reply_markup=None):
+            nonlocal state
+            if not reply_markup:
+                reply_markup = telebot.types.InlineKeyboardMarkup()
+                reply_markup.add(telebot.types.InlineKeyboardButton("❌ Отмена", callback_data="catalog"))
+            try:
+                if target_msg_id:
+                    # Пробуем отредактировать прошлое текстовое сообщение
+                    bot.edit_message_text(new_text, chat_id, target_msg_id, reply_markup=reply_markup)
+                else:
+                    raise Exception()
+            except Exception:
+                # Если прошлое сообщение было с фото или удалено, отправляем новое и запоминаем его ID
+                sent = bot.send_message(chat_id, new_text, reply_markup=reply_markup)
+                state["msg_id"] = sent.message_id
 
         if action == "add":
             if step == "name":
                 if not message.text:
-                    bot.send_message(chat_id, "❌ Введи текстовое название:")
                     return
                 state["name"] = message.text.strip()
                 state["step"] = "photo"
+                
                 markup = telebot.types.InlineKeyboardMarkup()
-                markup.add(telebot.types.InlineKeyboardButton("Пропустить фото", callback_data="skip_photo"))
-                bot.send_message(chat_id, "🖼 Шаг 2/6: Отправь фотографию товара (или нажми кнопку):", reply_markup=markup)
+                markup.add(telebot.types.InlineKeyboardButton("🖼 Пропустить фото", callback_data="skip_photo"))
+                markup.add(telebot.types.InlineKeyboardButton("❌ Отмена", callback_data="catalog"))
+                
+                update_admin_prompt("🖼 Шаг 2/6: Отправь фотографию товара (или нажми кнопку):", reply_markup=markup)
                 return
                 
             elif step == "photo":
@@ -860,41 +891,38 @@ def handle_text_and_flows(message):
                 if photo_id:
                     state["photo"] = photo_id
                     state["step"] = "material"
-                    bot.send_message(chat_id, "🧵 Шаг 3/6: Укажи материал (например: Паракорд 550):")
+                    update_admin_prompt("🧵 Шаг 3/6: Укажи материал (например: Паракорд 550):")
                 else:
-                    bot.send_message(chat_id, "🖼 Пожалуйста, отправь картинку (фото) или нажми кнопку «Пропустить фото»:")
+                    update_admin_prompt("🖼 Ошибка! Отправь картинку (фото) или нажми «Пропустить фото»:")
                 return
                 
             elif step == "material":
                 if not message.text:
-                    bot.send_message(chat_id, "❌ Введи материал текстом:")
                     return
                 state["material"] = message.text.strip()
                 state["step"] = "color"
-                bot.send_message(chat_id, "🎨 Шаг 4/6: Укажи цвет (например: Олива, Черный):")
+                update_admin_prompt("🎨 Шаг 4/6: Укажи цвет (например: Олива, Черный):")
                 return
 
             elif step == "color":
                 if not message.text:
-                    bot.send_message(chat_id, "❌ Введи цвет текстом:")
                     return
                 color_val = message.text.strip()
                 base_mat = state.get("material", "")
                 state["material"] = f"{base_mat}, Цвет: {color_val}"
                 state["step"] = "price"
-                bot.send_message(chat_id, "💵 Шаг 5/6: Напиши цену товара цифрами (например: 600):")
+                update_admin_prompt("💵 Шаг 5/6: Напиши цену товара цифрами (например: 600):")
                 return
                 
             elif step == "price":
                 if not message.text:
-                    bot.send_message(chat_id, "❌ Цена должна быть числом:")
                     return
                 try:
                     state["price"] = int(message.text.strip())
                     state["step"] = "time"
-                    bot.send_message(chat_id, "⏱ Шаг 6/6: Укажи срок изготовления (например: 1-2 дня):")
+                    update_admin_prompt("⏱ Шаг 6/6: Укажи срок изготовления (например: 1-2 дня):")
                 except ValueError:
-                    bot.send_message(chat_id, "❌ Ошибка! Цена должна быть целым числом (например: 600). Повтори ввод цены:")
+                    update_admin_prompt("❌ Ошибка! Цена должна быть целым числом (например: 600). Повтори ввод цены:")
                 return
                     
             elif step == "time":
@@ -918,49 +946,17 @@ def handle_text_and_flows(message):
                 if chat_id in admin_states:
                     del admin_states[chat_id]
                 
+                try:
+                    if target_msg_id:
+                        bot.delete_message(chat_id, target_msg_id)
+                except Exception:
+                    pass
+                
                 if success:
                     bot.send_message(chat_id, f"🎉 Товар успешно добавлен в категорию «{CATEGORIES.get(cat_key)}»!")
                 else:
                     bot.send_message(chat_id, "⚠️ Ошибка сохранения в облако.")
                     
-                show_main_menu(chat_id)
-                return
-
-        elif action == "edit":
-            item_id = state["item_id"]
-            products = load_products()
-            item = products.get(item_id, {})
-            
-            if step == "name":
-                state["new_name"] = message.text.strip() if message.text else item.get('name')
-                state["step"] = "price"
-                bot.send_message(chat_id, f"💵 Шаг 2/3: Напиши новую цену (текущая: {item.get('price')}):")
-                return
-                
-            elif step == "price":
-                try:
-                    state["new_price"] = int(message.text.strip())
-                    state["step"] = "material"
-                    bot.send_message(chat_id, f"🧵 Шаг 3/3: Укажи новый материал/цвет (текущий: {item.get('material')}):")
-                except ValueError:
-                    bot.send_message(chat_id, "❌ Цена должна быть числом. Повтори ввод:")
-                return
-                    
-            elif step == "material":
-                if not message.text:
-                    bot.send_message(chat_id, "❌ Введи данные текстом:")
-                    return
-                
-                item["name"] = state["new_name"]
-                item["price"] = state["new_price"]
-                item["material"] = message.text.strip()
-                
-                save_product_to_db(item_id, item)
-                
-                if chat_id in admin_states:
-                    del admin_states[chat_id]
-                
-                bot.send_message(chat_id, "✅ Товар успешно обновлен в облаке!")
                 show_main_menu(chat_id)
                 return
 
