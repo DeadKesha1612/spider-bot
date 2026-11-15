@@ -20,7 +20,7 @@ HEADERS = {
 }
 
 user_carts = {}
-checkout_states = {} # Состояния для пошагового ввода размеров при оформлении
+checkout_states = {}
 
 CATEGORIES = {
     "bracelets": "Браслеты",
@@ -75,6 +75,14 @@ def save_order_to_db(order_id, client_id, cart_items, total_price):
         requests.post(url, headers=HEADERS, json=payload)
     except Exception as e:
         print(f"Ошибка сохранения заказа в БД: {e}")
+
+def update_order_status_in_db(order_id, new_status):
+    try:
+        url = f"{SUPABASE_URL}/rest/v1/orders?order_id=eq.{order_id}"
+        payload = {"status": new_status}
+        requests.patch(url, headers=HEADERS, json=payload)
+    except Exception as e:
+        print(f"Ошибка обновления статуса заказа в БД: {e}")
 
 def clear_user_states(chat_id):
     if chat_id in checkout_states:
@@ -261,7 +269,6 @@ def checkout_order(call):
     if not cart:
         return
     
-    # Ищем, есть ли в корзине браслеты, которым нужен размер
     bracelet_indices = []
     for idx, item in enumerate(cart):
         cat = str(item.get("category", "")).lower()
@@ -270,7 +277,6 @@ def checkout_order(call):
             bracelet_indices.append(idx)
             
     if bracelet_indices:
-        # Запускаем мастер ввода размеров по очереди для каждого браслета
         checkout_states[chat_id] = {
             "cart": cart,
             "indices": bracelet_indices,
@@ -279,7 +285,6 @@ def checkout_order(call):
         }
         ask_next_wrist_size(chat_id)
     else:
-        # Браслетов нет — сразу оформляем
         finalize_order(chat_id, cart, call.message.message_id)
 
 def ask_next_wrist_size(chat_id):
@@ -311,12 +316,9 @@ def process_wrist_size_input(message):
     state = checkout_states[chat_id]
     current_item_index = state["indices"][state["current_idx"]]
     
-    # Дописываем размер к названию товара в корзине
     state["cart"][current_item_index]["name"] += f" (Запястье: {size_text})"
-    
     state["current_idx"] += 1
     
-    # Если остались еще браслеты — спрашиваем следующий, иначе финализируем заказ
     if state["current_idx"] < len(state["indices"]):
         ask_next_wrist_size(chat_id)
     else:
@@ -329,10 +331,8 @@ def finalize_order(chat_id, cart, message_id=None):
     order_id = get_next_order_number()
     total = sum(item.get('price', 0) for item in cart)
     
-    # Сохраняем в Supabase
     save_order_to_db(order_id, chat_id, cart, total)
     
-    # Сообщение клиенту
     client_text = f"✅ Заказ №{order_id} успешно оформлен! Мастер принял его в работу."
     try:
         if message_id:
@@ -346,19 +346,46 @@ def finalize_order(chat_id, cart, message_id=None):
         bot.send_message(chat_id, client_text, reply_markup=get_reply_markup())
         show_main_menu(chat_id)
 
-    # УВЕДОМЛЕНИЕ АДМИНУ (ТЕБЕ)
+    # УВЕДОМЛЕНИЕ АДМИНУ С КНОПКОЙ ГОТОВНОСТИ
     admin_text = f"🔥 Новый заказ №{order_id}!\n👤 Клиент ID: `{chat_id}`\n\n🛒 Состав заказа:\n"
     for idx, item in enumerate(cart):
         admin_text += f"{idx + 1}. {item.get('name')} — {item.get('price')} ₽\n"
     admin_text += f"\n💰 Итого: {total} ₽"
     
+    admin_markup = telebot.types.InlineKeyboardMarkup()
+    admin_markup.add(telebot.types.InlineKeyboardButton("✅ Заказ готов", callback_data=f"order_ready_{order_id}_{chat_id}"))
+
     try:
-        bot.send_message(ADMIN_ID, admin_text, parse_mode="Markdown")
+        bot.send_message(ADMIN_ID, admin_text, parse_mode="Markdown", reply_markup=admin_markup)
     except Exception as e:
         print(f"Ошибка отправки уведомления админу: {e}")
 
-    # Очищаем корзину пользователя
     user_carts[chat_id] = []
+
+# ОБРАБОТЧИК КНОПКИ «ЗАКАЗ ГОТОВ» ДЛЯ АДМИНА
+@bot.callback_query_handler(func=lambda call: call.data.startswith("order_ready_"))
+def mark_order_ready(call):
+    bot.answer_callback_query(call.id, "Статус обновлен!")
+    parts = call.data.split("_")
+    order_id = parts[2]
+    client_id = parts[3]
+
+    # Обновляем статус в базе
+    update_order_status_in_db(order_id, "ready")
+
+    # Уведомляем клиента
+    try:
+        bot.send_message(int(client_id), f"🎉 Твой заказ №{order_id} готов! Мастер связался с тобой или ждет для выдачи.")
+    except Exception as e:
+        print(f"Не удалось отправить уведомление клиенту: {e}")
+
+    # Меняем кнопку у админа, чтобы показать, что заказ выполнен
+    try:
+        markup = telebot.types.InlineKeyboardMarkup()
+        markup.add(telebot.types.InlineKeyboardButton("✅ Заказ готов (Выполнено)", callback_data="noop"))
+        bot.edit_message_reply_markup(call.message.chat.id, call.message.message_id, reply_markup=markup)
+    except Exception:
+        pass
 
 @bot.callback_query_handler(func=lambda call: call.data == "main_menu")
 def back_to_menu(call):
