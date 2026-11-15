@@ -1,5 +1,6 @@
 import telebot
 import os
+import json
 import requests
 from flask import Flask, request
 
@@ -60,19 +61,27 @@ def load_products():
     try:
         url = f"{SUPABASE_URL}/rest/v1/products?select=*"
         response = requests.get(url, headers=HEADERS)
-        print(f"DEBUG LOAD STATUS: {response.status_code}, BODY: {response.text}")
         if response.status_code == 200:
             rows = response.json()
             products_dict = {}
             for row in rows:
                 p_id = row.get("id")
+                # Парсим color_photos если оно пришло в виде строки
+                c_photos = row.get("color_photos")
+                if isinstance(c_photos, str):
+                    try:
+                        c_photos = json.loads(c_photos)
+                    except Exception:
+                        c_photos = {}
+                
                 products_dict[p_id] = {
                     "category": row.get("category"),
                     "name": row.get("name"),
                     "photo": row.get("photo"),
                     "price": row.get("price"),
                     "material": row.get("material"),
-                    "time": row.get("time")
+                    "time": row.get("time"),
+                    "color_photos": c_photos or {}
                 }
             return products_dict
         else:
@@ -82,7 +91,7 @@ def load_products():
     return {}
 
 def save_product_to_db(item_id, item_data):
-    """Сохраняет или обновляет товар в Supabase и сообщает об ошибке в чат админу"""
+    """Сохраняет или обновляет товар в Supabase"""
     try:
         url = f"{SUPABASE_URL}/rest/v1/products"
         payload = {
@@ -92,13 +101,12 @@ def save_product_to_db(item_id, item_data):
             "photo": item_data.get("photo"),
             "price": item_data.get("price"),
             "material": item_data.get("material"),
-            "time": item_data.get("time")
+            "time": item_data.get("time"),
+            "color_photos": item_data.get("color_photos", {})
         }
         headers_upsert = HEADERS.copy()
         headers_upsert["Prefer"] = "resolution=merge-duplicates"
         response = requests.post(url, headers=headers_upsert, json=payload)
-        
-        print(f"DEBUG SAVE STATUS: {response.status_code}, BODY: {response.text}")
         
         if response.status_code not in [200, 201]:
             error_msg = f"❌ Ошибка Supabase ({response.status_code}): {response.text}"
@@ -122,9 +130,7 @@ def delete_product_from_db(item_id):
     """Удаляет товар из Supabase по ID"""
     try:
         url = f"{SUPABASE_URL}/rest/v1/products?id=eq.{item_id}"
-        response = requests.delete(url, headers=HEADERS)
-        if response.status_code not in [200, 204]:
-            print(f"Ошибка удаления из Supabase: {response.text}")
+        requests.delete(url, headers=HEADERS)
     except Exception as e:
         print(f"Исключение при запросе в Supabase (delete): {e}")
 
@@ -204,16 +210,13 @@ def view_category_item(call):
     
     if not cat_items:
         text = f"📁 Категория: *{CATEGORIES.get(cat_key, 'Товары')}*\n\nВ этой категории пока нет товаров."
-        
         nav_buttons = [
             telebot.types.InlineKeyboardButton("⬅️ Назад", callback_data=f"cat_{cat_key}_0"),
             telebot.types.InlineKeyboardButton("Вперед ➡️", callback_data=f"cat_{cat_key}_0")
         ]
         markup.row(*nav_buttons)
-        
         if is_admin:
             markup.add(telebot.types.InlineKeyboardButton("➕ Добавить товар", callback_data=f"admin_add_{cat_key}"))
-            
         markup.add(telebot.types.InlineKeyboardButton("🔙 К категориям", callback_data="catalog"))
         bot.send_message(call.message.chat.id, text, parse_mode="Markdown", reply_markup=markup)
         return
@@ -222,43 +225,101 @@ def view_category_item(call):
     index = index % total_items
     item_id, item = cat_items[index]
     
+    send_item_card(call.message.chat.id, item_id, item, index, cat_items, edit_message_id=None)
+
+def send_item_card(chat_id, item_id, item, index, cat_items, edit_message_id=None, selected_color=None):
     name = item.get('name', 'Товар')
     price = item.get('price', 0)
     material = item.get('material', 'Не указан')
     time_val = item.get('time', 'Не указан')
+    color_photos = item.get('color_photos', {})
+    
+    # Определяем какую фото показывать
+    current_photo = item.get("photo")
+    if selected_color and selected_color in color_photos:
+        current_photo = color_photos[selected_color]
 
+    color_label = f" (Цвет: *{selected_color}*)" if selected_color else ""
     text = (
-        f"📁 Категория: *{CATEGORIES.get(cat_key)}* (Товар {index + 1} из {total_items})\n\n"
-        f"📌 **{name}**\n\n"
+        f"📌 **{name}**{color_label}\n\n"
         f"💵 Цена: {price} ₽\n"
         f"🧵 Материал: {material}\n"
         f"⏱ Срок изготовления: {time_val}"
     )
     
-    markup.add(telebot.types.InlineKeyboardButton("🛒 Добавить в корзину", callback_data=f"cart_add_{item_id}"))
+    markup = telebot.types.InlineKeyboardMarkup()
     
+    # Кнопки выбора цвета, если они настроены у товара
+    if color_photos:
+        color_buttons = []
+        for col_name in color_photos.keys():
+            prefix = "✅ " if col_name == selected_color else ""
+            color_buttons.append(telebot.types.InlineKeyboardButton(
+                f"{prefix}{col_name}", 
+                callback_data=f"selcol_{item_id}_{index}_{col_name}"
+            ))
+        markup.row(*color_buttons)
+
+    # Кнопка добавления в корзину (сохраняем выбранный цвет, если он есть)
+    cart_data = f"cart_add_{item_id}"
+    if selected_color:
+        cart_data = f"cart_add_{item_id}_{selected_color}"
+    markup.add(telebot.types.InlineKeyboardButton("🛒 Добавить в корзину", callback_data=cart_data))
+    
+    cat_key = str(item.get("category", "bracelets"))
     if cat_key in ["bracelets", "lanyards"]:
         markup.add(telebot.types.InlineKeyboardButton("🎨 Собрать свой вариант", callback_data=f"custom_start_{item_id}"))
     
+    total_items = len(cat_items)
     nav_buttons = [
         telebot.types.InlineKeyboardButton("⬅️ Назад", callback_data=f"cat_{cat_key}_{index - 1}"),
         telebot.types.InlineKeyboardButton("Вперед ➡️", callback_data=f"cat_{cat_key}_{index + 1}")
     ]
     markup.row(*nav_buttons)
     
+    is_admin = (int(chat_id) == int(ADMIN_ID))
     if is_admin:
         markup.add(telebot.types.InlineKeyboardButton("➕ Добавить товар", callback_data=f"admin_add_{cat_key}"))
         markup.add(
-            telebot.types.InlineKeyboardButton("✏️ Редактировать товар", callback_data=f"admin_edit_{item_id}"),
-            telebot.types.InlineKeyboardButton("🗑 Удалить товар", callback_data=f"admin_del_{cat_key}_{index}_{item_id}")
+            telebot.types.InlineKeyboardButton("✏️ Редактировать", callback_data=f"admin_edit_{item_id}"),
+            telebot.types.InlineKeyboardButton("🗑 Удалить", callback_data=f"admin_del_{cat_key}_{index}_{item_id}")
         )
 
     markup.add(telebot.types.InlineKeyboardButton("🔙 К категориям", callback_data="catalog"))
-    
-    if item.get("photo"):
-        bot.send_photo(call.message.chat.id, item["photo"], caption=text, parse_mode="Markdown", reply_markup=markup)
+
+    if edit_message_id:
+        try:
+            if current_photo:
+                media = telebot.types.InputMediaPhoto(current_photo, caption=text, parse_mode="Markdown")
+                bot.edit_message_media(media, chat_id, edit_message_id, reply_markup=markup)
+            else:
+                bot.edit_message_text(text, chat_id, edit_message_id, parse_mode="Markdown", reply_markup=markup)
+            return
+        except Exception:
+            pass
+
+    if current_photo:
+        bot.send_photo(chat_id, current_photo, caption=text, parse_mode="Markdown", reply_markup=markup)
     else:
-        bot.send_message(call.message.chat.id, text, parse_mode="Markdown", reply_markup=markup)
+        bot.send_message(chat_id, text, parse_mode="Markdown", reply_markup=markup)
+
+@bot.callback_query_handler(func=lambda call: call.data.startswith("selcol_"))
+def select_product_color(call):
+    bot.answer_callback_query(call.id)
+    parts = call.data.replace("selcol_", "").split("_")
+    item_id = parts[0]
+    index = int(parts[1])
+    selected_color = "_".join(parts[2:])
+    
+    products = load_products()
+    item = products.get(item_id)
+    if not item:
+        return
+        
+    cat_key = str(item.get("category", "bracelets"))
+    cat_items = [(i_id, i_val) for i_id, i_val in products.items() if str(i_val.get("category")) == cat_key]
+    
+    send_item_card(call.message.chat.id, item_id, item, index, cat_items, edit_message_id=call.message.message_id, selected_color=selected_color)
 
 # --- ИНТЕРАКТИВНЫЙ КОНСТРУКТОР ---
 
@@ -302,7 +363,6 @@ def show_custom_paracord_menu(chat_id, message_id=None):
         "👇 Выберите параметры шнура:"
     )
     markup = telebot.types.InlineKeyboardMarkup()
-    
     markup.add(telebot.types.InlineKeyboardButton("🎨 Выбрать цвет паракорда", callback_data="custom_choose_color"))
     markup.add(telebot.types.InlineKeyboardButton("📏 Выбрать толщину паракорда", callback_data="custom_choose_thick"))
     markup.add(telebot.types.InlineKeyboardButton("🪢 Выбрать тип плетения", callback_data="custom_choose_weave"))
@@ -531,7 +591,10 @@ def custom_add_to_cart(call):
 
 @bot.callback_query_handler(func=lambda call: call.data.startswith("cart_add_"))
 def add_to_cart(call):
-    item_id = call.data.replace("cart_add_", "")
+    parts = call.data.replace("cart_add_", "").split("_")
+    item_id = parts[0]
+    selected_color = parts[1] if len(parts) > 1 else None
+    
     products = load_products()
     item = products.get(item_id)
     
@@ -539,8 +602,13 @@ def add_to_cart(call):
         chat_id = call.message.chat.id
         if chat_id not in user_carts:
             user_carts[chat_id] = []
-        user_carts[chat_id].append(item)
-        bot.answer_callback_query(call.id, f"✅ Добавлено: {item.get('name', 'Товар')}")
+            
+        item_to_add = item.copy()
+        if selected_color:
+            item_to_add['name'] = f"{item.get('name')} (Цвет: {selected_color})"
+            
+        user_carts[chat_id].append(item_to_add)
+        bot.answer_callback_query(call.id, f"✅ Добавлено в корзину!")
     else:
         bot.answer_callback_query(call.id, "❌ Товар не найден.")
 
@@ -713,9 +781,6 @@ def admin_edit_start(call):
         return
         
     admin_states[call.message.chat.id] = {"action": "edit", "item_id": item_id, "step": "name"}
-    markup = telebot.types.InlineKeyboardMarkup()
-    markup.add(telebot.types.InlineKeyboardButton("❌ Отмена", callback_data="catalog"))
-    
     bot.send_message(call.message.chat.id, f"✏️ [Редактирование: {item.get('name')}]\nШаг 1/3: Напиши новое название:")
 
 @bot.callback_query_handler(func=lambda call: call.data == "skip_photo")
@@ -746,7 +811,7 @@ def handle_admin_flow(message):
             state["step"] = "photo"
             markup = telebot.types.InlineKeyboardMarkup()
             markup.add(telebot.types.InlineKeyboardButton("Пропустить фото", callback_data="skip_photo"))
-            bot.send_message(chat_id, "🖼 Шаг 2/5: Отправь фото товара (или нажми кнопку):", reply_markup=markup)
+            bot.send_message(chat_id, "🖼 Шаг 2/5: Отправь базовое фото товара (или нажми кнопку):", reply_markup=markup)
             return
             
         elif step == "photo":
@@ -790,7 +855,8 @@ def handle_admin_flow(message):
                 "photo": state.get("photo"),
                 "price": state["price"],
                 "material": state["material"],
-                "time": state["time"]
+                "time": state["time"],
+                "color_photos": {}
             }
             
             success = save_product_to_db(item_id, item_data)
@@ -800,9 +866,9 @@ def handle_admin_flow(message):
                 del admin_states[chat_id]
             
             if success:
-                bot.send_message(chat_id, f"🎉 Товар успешно добавлен в категорию «{CATEGORIES.get(cat_key)}» и сохранен в облаке!")
+                bot.send_message(chat_id, f"🎉 Товар успешно добавлен в категорию «{CATEGORIES.get(cat_key)}»!")
             else:
-                bot.send_message(chat_id, "⚠️ Ошибка сохранения в облако. Проверь личные сообщения — туда отправлен текст ошибки.")
+                bot.send_message(chat_id, "⚠️ Ошибка сохранения в облако.")
                 
             show_main_menu(chat_id)
             return
