@@ -1137,29 +1137,33 @@ def handle_text_and_flows(message):
                 show_main_menu(chat_id)
                 return
 
-# --- МИНИ-СЕРВЕР FLASK ДЛЯ УДЕРЖАНИЯ ПОРТА НА RENDER ---
+# --- ВЕБХУК СЕРВЕР FLASK ---
 app = Flask(__name__)
 
-@app.route('/')
-def home():
-    return "Bot is running!"
+@app.route(f"/{TOKEN}", methods=['POST'])
+def webhook():
+    if request.headers.get('content-type') == 'application/json':
+        json_string = request.get_data().decode('utf-8')
+        update = telebot.types.Update.de_json(json_string)
+        bot.process_new_updates([update])
+        return "!", 200
+    else:
+        return "Invalid", 403
 
-def run_flask():
-    port = int(os.environ.get("PORT", 10000))
-    app.run(host="0.0.0.0", port=port)
+@app.route('/')
+def index():
+    return "Bot is running on Webhook!"
 
 if __name__ == '__main__':
-    # Сбрасываем вебхуки для корректной работы Long Polling
-    try:
-        requests.get(f"https://api.telegram.org/bot{TOKEN}/deleteWebhook?drop_pending_updates=true")
-    except Exception:
-        pass
-        
-    import threading
-    # Запускаем Flask в отдельном потоке, чтобы он занимал порт Render
-    flask_thread = threading.Thread(target=run_flask)
-    flask_thread.daemon = True
-    flask_thread.start()
+    # Удаляем старый вебхук на случай остатков
+    bot.remove_webhook()
     
-    print("Бот и Flask-сервер запущены...")
-    bot.infinity_polling(skip_pending=True)
+    # Устанавливаем новый вебхук на адрес Render
+    RENDER_URL = f"https://thespidertemplebot.onrender.com/{TOKEN}"
+    bot.set_webhook(url=RENDER_URL)
+    
+    print(f"Вебхук установлен на: {RENDER_URL}")
+    
+    # Запускаем Flask на порту Render
+    port = int(os.environ.get("PORT", 10000))
+    app.run(host="0.0.0.0", port=port)
