@@ -2,13 +2,9 @@ import telebot
 import os
 import json
 import requests
-from flask import Flask, request
 
 TOKEN = "9263601739:AAFIjFxcaOPi0T4SWR-9eF262TAkoAKyCn0"
 bot = telebot.TeleBot(TOKEN)
-
-app = Flask(__name__)
-WEBHOOK_URL = f"https://thespidertemplebot.onrender.com/{TOKEN}"
 
 ADMIN_ID = 5393257255
 
@@ -142,21 +138,7 @@ def delete_product_from_db(item_id):
     except Exception as e:
         print(f"Исключение при запросе в Supabase (delete): {e}")
 
-# --- WEB & TELEGRAM ROUTES ---
-
-@app.route('/')
-def home():
-    return "Hram Pauka Bot (Supabase edition) is running!"
-
-@app.route(f'/{TOKEN}', methods=['POST'])
-def webhook():
-    try:
-        json_string = request.get_data().decode('utf-8')
-        update = telebot.types.Update.de_json(json_string)
-        bot.process_new_updates([update])
-    except Exception as e:
-        print(f"Ошибка обработки апдейта: {e}")
-    return '', 200
+# --- ТЕЛЕГРАМ ОБРАБОТЧИКИ ---
 
 def clear_user_states(chat_id):
     for state_dict in (admin_states, custom_states, size_states):
@@ -830,7 +812,7 @@ def checkout_order(call):
 @bot.callback_query_handler(func=lambda call: call.data == "main_menu")
 def back_to_menu(call):
     bot.answer_callback_query(call.id)
-    chat_id = call.message.chat.id
+    chat_id = message.chat.id if 'message' in dir(call) else call.message.chat.id
     clear_user_states(chat_id)
     show_main_menu(chat_id, call.message.message_id)
 
@@ -1168,15 +1150,11 @@ def handle_text_and_flows(message):
                 return
 
 if __name__ == '__main__':
-    bot.remove_webhook()
-    bot.set_webhook(url=WEBHOOK_URL)
-    
+    # Сбрасываем вебхук перед запуском поллинга, чтобы Telegram не блокировал запросы
     try:
-        bot.delete_chat_menu_button()
+        requests.get(f"https://api.telegram.org/bot{TOKEN}/deleteWebhook?drop_pending_updates=true")
     except Exception:
         pass
         
-    print(f"Вебхук установлен на: {WEBHOOK_URL}")
-    
-    port = int(os.environ.get("PORT", 10000))
-    app.run(host="0.0.0.0", port=port)
+    print("Бот запущен в режиме Long Polling...")
+    bot.infinity_polling(skip_pending=True)
