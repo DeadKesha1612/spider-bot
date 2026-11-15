@@ -335,25 +335,26 @@ def process_wrist_size_input(message):
         bot.send_message(chat_id, f"✅ Заказ №{order_id} успешно оформлен! Мастер принял его в работу.", reply_markup=get_reply_markup())
         show_main_menu(chat_id)
 
-        if user_info and getattr(user_info, 'username', None):
-            customer_link = f"@{user_info.username}"
+        username = getattr(user_info, 'username', None)
+        if username:
+            customer_str = f"@{username}"
         else:
-            customer_link = f"Клиент [ID {chat_id}](tg://user?id={chat_id})"
+            customer_str = f"ID: {chat_id}"
 
         admin_text = (
-            f"🔥 **Новый заказ №{order_id}!**\n"
-            f"👤 Заказчик: {customer_link}\n\n"
-            f"🛒 **Состав заказа:**\n"
+            f"🔥 Новый заказ №{order_id}!\n"
+            f"👤 Заказчик: {customer_str}\n\n"
+            f"🛒 Состав заказа:\n"
         )
         for idx, item in enumerate(cart):
             admin_text += f"{idx + 1}. {item.get('name')} — {item.get('price')} ₽\n"
-        admin_text += f"\n💰 **Итого:** {total} ₽"
+        admin_text += f"\n💰 Итого: {total} ₽"
         
         admin_markup = telebot.types.InlineKeyboardMarkup()
         admin_markup.add(telebot.types.InlineKeyboardButton("✅ Заказ готов", callback_data=f"ready_{order_id}_{chat_id}"))
 
         try:
-            bot.send_message(ADMIN_ID, admin_text, parse_mode="Markdown", reply_markup=admin_markup)
+            bot.send_message(ADMIN_ID, admin_text, reply_markup=admin_markup)
             print(f"Уведомление админу по заказу №{order_id} отправлено.")
         except Exception as e:
             print(f"Ошибка отправки уведомления админу: {e}")
@@ -379,25 +380,26 @@ def finalize_direct_order(chat_id, user_obj, cart, message_id=None):
         bot.send_message(chat_id, client_text, reply_markup=get_reply_markup())
         show_main_menu(chat_id)
 
-    if user_obj and getattr(user_obj, 'username', None):
-        customer_link = f"@{user_obj.username}"
+    username = getattr(user_obj, 'username', None)
+    if username:
+        customer_str = f"@{username}"
     else:
-        customer_link = f"Клиент [ID {chat_id}](tg://user?id={chat_id})"
+        customer_str = f"ID: {chat_id}"
 
     admin_text = (
-        f"🔥 **Новый заказ №{order_id}!**\n"
-        f"👤 Заказчик: {customer_link}\n\n"
-        f"🛒 **Состав заказа:**\n"
+        f"🔥 Новый заказ №{order_id}!\n"
+        f"👤 Заказчик: {customer_str}\n\n"
+        f"🛒 Состав заказа:\n"
     )
     for idx, item in enumerate(cart):
         admin_text += f"{idx + 1}. {item.get('name')} — {item.get('price')} ₽\n"
-    admin_text += f"\n💰 **Итого:** {total} ₽"
+    admin_text += f"\n💰 Итого: {total} ₽"
     
     admin_markup = telebot.types.InlineKeyboardMarkup()
     admin_markup.add(telebot.types.InlineKeyboardButton("✅ Заказ готов", callback_data=f"ready_{order_id}_{chat_id}"))
 
     try:
-        bot.send_message(ADMIN_ID, admin_text, parse_mode="Markdown", reply_markup=admin_markup)
+        bot.send_message(ADMIN_ID, admin_text, reply_markup=admin_markup)
         print(f"Уведомление админу по заказу №{order_id} отправлено успешно.")
     except Exception as e:
         print(f"Ошибка отправки уведомления админу: {e}")
