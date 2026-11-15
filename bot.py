@@ -952,7 +952,6 @@ def skip_photo(call):
             sent = bot.send_message(chat_id, text, reply_markup=markup)
             admin_states[chat_id]["msg_id"] = sent.message_id
 
-# ИСПРАВЛЕННЫЙ ТЕКСТОВЫЙ ХЕНДЛЕР (реагирует только на активные шаги ввода, не блокируя /start)
 @bot.message_handler(content_types=['text', 'photo', 'document'], func=lambda message: message.chat.id in admin_states or message.chat.id in custom_states or message.chat.id in size_states)
 def handle_text_and_flows(message):
     chat_id = message.chat.id
@@ -1169,7 +1168,7 @@ def handle_text_and_flows(message):
                 return
 
 if __name__ == '__main__':
-    bot.remove_webhook()
+bot.remove_webhook()
     bot.set_webhook(url=WEBHOOK_URL)
     
     try:
