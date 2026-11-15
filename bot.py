@@ -2,8 +2,7 @@ import telebot
 import os
 import json
 import requests
-from http.server import HTTPServer, BaseHTTPRequestHandler
-import threading
+from flask import Flask, request
 
 TOKEN = "9263601739:AAFIjFxcaOPi0T4SWR-9eF262TAkoAKyCn0"
 bot = telebot.TeleBot(TOKEN)
@@ -99,34 +98,6 @@ def save_order_to_db(order_id, client_id, cart_items, total_price):
     except Exception as e:
         print(f"Ошибка сохранения заказа в БД: {e}")
 
-def save_product_to_db(item_id, item_data):
-    try:
-        url = f"{SUPABASE_URL}/rest/v1/products"
-        payload = {
-            "id": item_id,
-            "category": item_data.get("category"),
-            "name": item_data.get("name"),
-            "photo": item_data.get("photo"),
-            "price": item_data.get("price"),
-            "material": item_data.get("material"),
-            "time": item_data.get("time"),
-            "color_photos": {}
-        }
-        headers_upsert = HEADERS.copy()
-        headers_upsert["Prefer"] = "resolution=merge-duplicates"
-        response = requests.post(url, headers=headers_upsert, json=payload)
-        return response.status_code in [200, 201]
-    except Exception as e:
-        print(f"Исключение при сохранении: {e}")
-        return False
-
-def delete_product_from_db(item_id):
-    try:
-        url = f"{SUPABASE_URL}/rest/v1/products?id=eq.{item_id}"
-        requests.delete(url, headers=HEADERS)
-    except Exception as e:
-        print(f"Исключение при удалении: {e}")
-
 def clear_user_states(chat_id):
     for state_dict in (admin_states, custom_states, size_states):
         if chat_id in state_dict:
@@ -182,10 +153,6 @@ def open_catalog(call):
     try:
         bot.edit_message_text(text, call.message.chat.id, call.message.message_id, reply_markup=markup)
     except Exception:
-        try:
-            bot.delete_message(call.message.chat.id, call.message.message_id)
-        except Exception:
-            pass
         bot.send_message(call.message.chat.id, text, reply_markup=markup)
 
 @bot.callback_query_handler(func=lambda call: call.data.startswith("cat_"))
@@ -211,13 +178,6 @@ def view_category_item(call):
     
     if not cat_items:
         text = f"📁 Категория: {CATEGORIES.get(cat_key, 'Товары')}\n\nВ этой категории пока нет товаров."
-        nav_buttons = [
-            telebot.types.InlineKeyboardButton("⬅️ Назад", callback_data=f"cat_{cat_key}_0"),
-            telebot.types.InlineKeyboardButton("Вперед ➡️", callback_data=f"cat_{cat_key}_0")
-        ]
-        markup.row(*nav_buttons)
-        if is_admin:
-            markup.add(telebot.types.InlineKeyboardButton("➕ Добавить товар", callback_data=f"admin_add_{cat_key}"))
         markup.add(telebot.types.InlineKeyboardButton("🛒 Корзина", callback_data="view_cart"))
         markup.add(telebot.types.InlineKeyboardButton("🔙 К категориям", callback_data="catalog"))
         try:
@@ -246,22 +206,11 @@ def view_category_item(call):
     markup = telebot.types.InlineKeyboardMarkup()
     markup.add(telebot.types.InlineKeyboardButton("🛒 Добавить в корзину", callback_data=f"cart_add_{item_id}"))
     
-    if cat_key in ["bracelets", "lanyards"]:
-        markup.add(telebot.types.InlineKeyboardButton("🎨 Собрать свой вариант", callback_data=f"custom_start_{item_id}"))
-    
     nav_buttons = [
         telebot.types.InlineKeyboardButton("⬅️ Назад", callback_data=f"cat_{cat_key}_{index - 1}"),
         telebot.types.InlineKeyboardButton("Вперед ➡️", callback_data=f"cat_{cat_key}_{index + 1}")
     ]
     markup.row(*nav_buttons)
-    
-    if is_admin:
-        markup.add(telebot.types.InlineKeyboardButton("➕ Добавить товар", callback_data=f"admin_add_{cat_key}"))
-        markup.add(
-            telebot.types.InlineKeyboardButton("✏️ Редактировать", callback_data=f"admin_edit_{item_id}"),
-            telebot.types.InlineKeyboardButton("🗑 Удалить", callback_data=f"admin_del_{cat_key}_{index}_{item_id}")
-        )
-
     markup.add(telebot.types.InlineKeyboardButton("🛒 Корзина", callback_data="view_cart"))
     markup.add(telebot.types.InlineKeyboardButton("🔙 К категориям", callback_data="catalog"))
 
@@ -280,6 +229,20 @@ def view_category_item(call):
             bot.send_photo(call.message.chat.id, current_photo, caption=text, reply_markup=markup)
         else:
             bot.send_message(call.message.chat.id, text, reply_markup=markup)
+
+@bot.callback_query_handler(func=lambda call: call.data.startswith("cart_add_"))
+def add_to_cart(call):
+    item_id = call.data.replace("cart_add_", "")
+    products = load_products()
+    item = products.get(item_id)
+    if not item:
+        bot.answer_callback_query(call.id, "❌ Товар не найден.")
+        return
+    chat_id = call.message.chat.id
+    if chat_id not in user_carts:
+        user_carts[chat_id] = []
+    user_carts[chat_id].append(item)
+    bot.answer_callback_query(call.id, "✅ Добавлено в корзину!")
 
 @bot.callback_query_handler(func=lambda call: call.data == "view_cart")
 def view_cart(call):
@@ -313,37 +276,49 @@ def clear_cart(call):
     user_carts[call.message.chat.id] = []
     view_cart(call)
 
+@bot.callback_query_handler(func=lambda call: call.data == "checkout")
+def checkout_order(call):
+    bot.answer_callback_query(call.id)
+    message = call.message
+    chat_id = message.chat.id
+    cart = user_carts.get(chat_id, [])
+    if not cart:
+        return
+    order_id = get_next_order_number()
+    total = sum(item.get('price', 0) for item in cart)
+    save_order_to_db(order_id, chat_id, cart, total)
+    bot.send_message(chat_id, f"✅ Заказ №{order_id} успешно оформлен! Мастер принял его в работу.")
+    user_carts[chat_id] = []
+    show_main_menu(chat_id, message.message_id)
+
 @bot.callback_query_handler(func=lambda call: call.data == "main_menu")
 def back_to_menu(call):
     bot.answer_callback_query(call.id)
     show_main_menu(call.message.chat.id, call.message.message_id)
 
-# --- МИНИ-СЕРВЕР ДЛЯ УДЕРЖАНИЯ ПОРТА НА RENDER ---
-class SimpleHandler(BaseHTTPRequestHandler):
-    def do_GET(self):
-        self.send_response(200)
-        self.end_headers()
-        self.wfile.write(b"Bot is active!")
-    def log_message(self, format, *args):
-        pass
+# --- FLASK СЕРВЕР ДЛЯ ВЕБХУКА ---
+app = Flask(__name__)
 
-def run_server():
-    port = int(os.environ.get("PORT", 10000))
-    server = HTTPServer(("0.0.0.0", port), SimpleHandler)
-    server.serve_forever()
+@app.route(f"/{TOKEN}", methods=['POST'])
+def webhook():
+    if request.headers.get('content-type') == 'application/json':
+        json_string = request.get_data().decode('utf-8')
+        update = telebot.types.Update.de_json(json_string)
+        bot.process_new_updates([update])
+        return "!", 200
+    else:
+        return "Invalid", 403
+
+@app.route('/')
+def index():
+    return "Bot is running on Webhook!"
 
 if __name__ == '__main__':
-    # Принудительно сбрасываем старый вебхук при каждом запуске
-    try:
-        requests.get(f"https://api.telegram.org/bot{TOKEN}/deleteWebhook?drop_pending_updates=true")
-        print("Вебхук успешно сброшен перед запуском поллинга!")
-    except Exception as e:
-        print(f"Ошибка при сбросе вебхука: {e}")
+    # Автоматически регистрируем вебхук в Telegram при старте
+    WEBHOOK_URL = f"https://thespidertemplebot.onrender.com/{TOKEN}"
+    bot.remove_webhook()
+    bot.set_webhook(url=WEBHOOK_URL)
+    print(f"Вебхук успешно установлен на: {WEBHOOK_URL}")
 
-    # Запускаем заглушку порта в фоновом потоке
-    server_thread = threading.Thread(target=run_server)
-    server_thread.daemon = True
-    server_thread.start()
-    
-    print("Запуск поллинга...")
-    bot.infinity_polling(skip_pending=True, timeout=60, long_polling_timeout=60)
+    port = int(os.environ.get("PORT", 10000))
+    app.run(host="0.0.0.0", port=port)
