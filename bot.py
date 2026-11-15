@@ -231,36 +231,17 @@ def send_item_card(chat_id, item_id, item, index, cat_items, edit_message_id=Non
     price = item.get('price', 0)
     material = item.get('material', 'Не указан')
     time_val = item.get('time', 'Не указан')
-    color_photos = item.get('color_photos', {})
     
     current_photo = item.get("photo")
-    if selected_color and selected_color in color_photos:
-        current_photo = color_photos[selected_color]
-
-    color_label = f" (Цвет: {selected_color})" if selected_color else ""
     text = (
-        f"📌 {name}{color_label}\n\n"
+        f"📌 {name}\n\n"
+        f"🧵 Материал / Цвет: {material}\n"
         f"💵 Цена: {price} ₽\n"
-        f"🧵 Материал: {material}\n"
         f"⏱ Срок изготовления: {time_val}"
     )
     
     markup = telebot.types.InlineKeyboardMarkup()
-    
-    if color_photos:
-        color_buttons = []
-        for col_name in color_photos.keys():
-            prefix = "✅ " if col_name == selected_color else ""
-            color_buttons.append(telebot.types.InlineKeyboardButton(
-                f"{prefix}{col_name}", 
-                callback_data=f"selcol_{item_id}_{index}_{col_name}"
-            ))
-        markup.row(*color_buttons)
-
-    cart_data = f"cart_add_{item_id}"
-    if selected_color:
-        cart_data = f"cart_add_{item_id}_{selected_color}"
-    markup.add(telebot.types.InlineKeyboardButton("🛒 Добавить в корзину", callback_data=cart_data))
+    markup.add(telebot.types.InlineKeyboardButton("🛒 Добавить в корзину", callback_data=f"cart_add_{item_id}"))
     
     cat_key = str(item.get("category", "bracelets"))
     if cat_key in ["bracelets", "lanyards"]:
@@ -298,24 +279,6 @@ def send_item_card(chat_id, item_id, item, index, cat_items, edit_message_id=Non
         bot.send_photo(chat_id, current_photo, caption=text, reply_markup=markup)
     else:
         bot.send_message(chat_id, text, reply_markup=markup)
-
-@bot.callback_query_handler(func=lambda call: call.data.startswith("selcol_"))
-def select_product_color(call):
-    bot.answer_callback_query(call.id)
-    parts = call.data.replace("selcol_", "").split("_")
-    item_id = parts[0]
-    index = int(parts[1])
-    selected_color = "_".join(parts[2:])
-    
-    products = load_products()
-    item = products.get(item_id)
-    if not item:
-        return
-        
-    cat_key = str(item.get("category", "bracelets"))
-    cat_items = [(i_id, i_val) for i_id, i_val in products.items() if str(i_val.get("category")) == cat_key]
-    
-    send_item_card(call.message.chat.id, item_id, item, index, cat_items, edit_message_id=call.message.message_id, selected_color=selected_color)
 
 # --- ИНТЕРАКТИВНЫЙ КОНСТРУКТОР ---
 
@@ -587,10 +550,7 @@ def custom_add_to_cart(call):
 
 @bot.callback_query_handler(func=lambda call: call.data.startswith("cart_add_"))
 def add_to_cart(call):
-    parts = call.data.replace("cart_add_", "").split("_")
-    item_id = parts[0]
-    selected_color = parts[1] if len(parts) > 1 else None
-    
+    item_id = call.data.replace("cart_add_", "")
     products = load_products()
     item = products.get(item_id)
     
@@ -599,11 +559,7 @@ def add_to_cart(call):
         if chat_id not in user_carts:
             user_carts[chat_id] = []
             
-        item_to_add = item.copy()
-        if selected_color:
-            item_to_add['name'] = f"{item.get('name')} (Цвет: {selected_color})"
-            
-        user_carts[chat_id].append(item_to_add)
+        user_carts[chat_id].append(item)
         bot.answer_callback_query(call.id, f"✅ Добавлено в корзину!")
     else:
         bot.answer_callback_query(call.id, "❌ Товар не найден.")
@@ -742,14 +698,12 @@ def admin_add_start(call):
     admin_states[call.message.chat.id] = {
         "action": "add", 
         "category": cat_key, 
-        "step": "name",
-        "color_photos": {},
-        "current_color_name": None
+        "step": "name"
     }
     markup = telebot.types.InlineKeyboardMarkup()
     markup.add(telebot.types.InlineKeyboardButton("❌ Отмена", callback_data="catalog"))
     
-    bot.send_message(call.message.chat.id, f"✍️ [Добавление в «{CATEGORIES.get(cat_key)}»] Шаг 1: Напиши название товара:", reply_markup=markup)
+    bot.send_message(call.message.chat.id, f"✍️ [Добавление в «{CATEGORIES.get(cat_key)}»] Шаг 1/5: Напиши название товара:", reply_markup=markup)
 
 @bot.callback_query_handler(func=lambda call: call.data.startswith("admin_del_"))
 def admin_delete_item(call):
@@ -790,51 +744,8 @@ def skip_photo(call):
     chat_id = call.message.chat.id
     if chat_id in admin_states and admin_states[chat_id].get("step") == "photo":
         admin_states[chat_id]["photo"] = None
-        admin_states[chat_id]["step"] = "price"
-        bot.send_message(chat_id, "💵 Шаг 3: Напиши цену товара цифрами (например: 750):")
-
-@bot.callback_query_handler(func=lambda call: call.data == "finish_colors")
-def finish_colors_callback(call):
-    bot.answer_callback_query(call.id)
-    chat_id = call.message.chat.id
-    state = admin_states.get(chat_id)
-    if not state or state.get("action") != "add":
-        return
-        
-    # Сохраняем товар в базу
-    item_id = f"item_{int(os.urandom(3).hex(), 16)}"
-    item_data = {
-        "category": state["category"],
-        "name": state["name"],
-        "photo": state.get("photo"),
-        "price": state["price"],
-        "material": state["material"],
-        "time": state["time"],
-        "color_photos": state.get("color_photos", {})
-    }
-    
-    success = save_product_to_db(item_id, item_data)
-    cat_key = state["category"]
-    
-    if chat_id in admin_states:
-        del admin_states[chat_id]
-        
-    if success:
-        bot.send_message(chat_id, f"🎉 Товар успешно добавлен в категорию «{CATEGORIES.get(cat_key)}» с вариантами цветов!")
-    else:
-        bot.send_message(chat_id, "⚠️ Ошибка сохранения в облако.")
-        
-    show_main_menu(chat_id)
-
-@bot.callback_query_handler(func=lambda call: call.data == "add_more_color")
-def add_more_color_callback(call):
-    bot.answer_callback_query(call.id)
-    chat_id = call.message.chat.id
-    state = admin_states.get(chat_id)
-    if not state:
-        return
-    state["step"] = "color_name"
-    bot.send_message(chat_id, "🎨 Напиши название цвета (например: Олива, Черный):")
+        admin_states[chat_id]["step"] = "material"
+        bot.send_message(chat_id, "🎨 Шаг 3/5: Укажи цвет товара (например: Олива, Черный):")
 
 @bot.message_handler(content_types=['text', 'photo'], func=lambda message: message.chat.id in admin_states)
 def handle_admin_flow(message):
@@ -855,16 +766,25 @@ def handle_admin_flow(message):
             state["step"] = "photo"
             markup = telebot.types.InlineKeyboardMarkup()
             markup.add(telebot.types.InlineKeyboardButton("Пропустить фото", callback_data="skip_photo"))
-            bot.send_message(chat_id, "🖼 Шаг 2: Отправь базовое фото товара (или нажми кнопку):", reply_markup=markup)
+            bot.send_message(chat_id, "🖼 Шаг 2/5: Отправь фотографию товара (или нажми кнопку):", reply_markup=markup)
             return
             
         elif step == "photo":
             if message.photo:
                 state["photo"] = message.photo[-1].file_id
-                state["step"] = "price"
-                bot.send_message(chat_id, "💵 Шаг 3: Напиши цену цифрами (например: 600):")
+                state["step"] = "material"
+                bot.send_message(chat_id, "🎨 Шаг 3/5: Укажи цвет товара (например: Олива, Черный):")
             else:
                 bot.send_message(chat_id, "🖼 Пожалуйста, отправь фото товара или нажми кнопку «Пропустить фото»:")
+            return
+            
+        elif step == "material":
+            if not message.text:
+                bot.send_message(chat_id, "❌ Введи цвет текстом:")
+                return
+            state["material"] = message.text.strip()
+            state["step"] = "price"
+            bot.send_message(chat_id, "💵 Шаг 4/5: Напиши цену товара цифрами (например: 600):")
             return
             
         elif step == "price":
@@ -873,63 +793,39 @@ def handle_admin_flow(message):
                 return
             try:
                 state["price"] = int(message.text.strip())
-                state["step"] = "material"
-                bot.send_message(chat_id, "🧵 Шаг 4: Укажи материал (например: Паракорд 550):")
+                state["step"] = "time"
+                bot.send_message(chat_id, "⏱ Шаг 5/5: Укажи срок изготовления (например: 1-2 дня):")
             except ValueError:
                 bot.send_message(chat_id, "❌ Цена должна быть числом. Повтори ввод:")
             return
                 
-        elif step == "material":
-            if not message.text:
-                bot.send_message(chat_id, "❌ Введи материал текстом:")
-                return
-            state["material"] = message.text.strip()
-            state["step"] = "time"
-            bot.send_message(chat_id, "⏱ Шаг 5: Укажи срок изготовления (например: 1-2 дня):")
-            return
-            
         elif step == "time":
             text_val = message.text.strip() if message.text else "1-2 дня"
             state["time"] = text_val
-            state["step"] = "color_name"
             
-            markup = telebot.types.InlineKeyboardMarkup()
-            markup.add(telebot.types.InlineKeyboardButton("➡️ Пропустить / Завершить", callback_data="finish_colors"))
-            bot.send_message(
-                chat_id, 
-                "🎨 Шаг 6: Добавление вариантов цветов.\n\nНапиши название первого цвета (например: Олива):", 
-                reply_markup=markup
-            )
-            return
-
-        elif step == "color_name":
-            if not message.text:
-                bot.send_message(chat_id, "❌ Введи название цвета текстом:")
-                return
-            state["current_color_name"] = message.text.strip()
-            state["step"] = "color_photo"
-            bot.send_message(chat_id, f"🖼 Отправь фотографию товара в цвете <b>«{state['current_color_name']}»</b>:")
-            return
-
-        elif step == "color_photo":
-            if message.photo:
-                photo_id = message.photo[-1].file_id
-                col_name = state["current_color_name"]
-                state["color_photos"][col_name] = photo_id
-                
-                markup = telebot.types.InlineKeyboardMarkup()
-                markup.add(
-                    telebot.types.InlineKeyboardButton("➕ Добавить еще цвет", callback_data="add_more_color"),
-                    telebot.types.InlineKeyboardButton("✅ Завершить и сохранить", callback_data="finish_colors")
-                )
-                bot.send_message(
-                    chat_id, 
-                    f"✅ Цвет «{col_name}» успешно добавлен!\Хочешь добавить еще один вариант цвета или сохранить товар?", 
-                    reply_markup=markup
-                )
-                state["step"] = "waiting_choice"
+            item_id = f"item_{int(os.urandom(3).hex(), 16)}"
+            item_data = {
+                "category": state["category"],
+                "name": state["name"],
+                "photo": state.get("photo"),
+                "price": state["price"],
+                "material": state["material"],
+                "time": state["time"],
+                "color_photos": {}
+            }
+            
+            success = save_product_to_db(item_id, item_data)
+            cat_key = state["category"]
+            
+            if chat_id in admin_states:
+                del admin_states[chat_id]
+            
+            if success:
+                bot.send_message(chat_id, f"🎉 Товар успешно добавлен в категорию «{CATEGORIES.get(cat_key)}»!")
             else:
-                bot.send_message(chat_id, "🖼 Пожалуйста, отправь фотографию для этого цвета:")
+                bot.send_message(chat_id, "⚠️ Ошибка сохранения в облако.")
+                
+            show_main_menu(chat_id)
             return
 
     elif action == "edit":
@@ -947,14 +843,14 @@ def handle_admin_flow(message):
             try:
                 state["new_price"] = int(message.text.strip())
                 state["step"] = "material"
-                bot.send_message(chat_id, f"🧵 Шаг 3/3: Укажи новый материал (текущий: {item.get('material')}):")
+                bot.send_message(chat_id, f"🎨 Шаг 3/3: Укажи новый цвет (текущий: {item.get('material')}):")
             except ValueError:
                 bot.send_message(chat_id, "❌ Цена должна быть числом. Повтори ввод:")
             return
                 
         elif step == "material":
             if not message.text:
-                bot.send_message(chat_id, "❌ Введи материал текстом:")
+                bot.send_message(chat_id, "❌ Введи цвет текстом:")
                 return
             
             item["name"] = state["new_name"]
@@ -981,5 +877,5 @@ if __name__ == '__main__':
         
     print(f"Вебхук установлен на: {WEBHOOK_URL}")
     
-    port = int(os.environ.0 if "PORT" in os.environ else 10000)
+    port = int(os.environ.get("PORT", 10000))
     app.run(host="0.0.0.0", port=port)
