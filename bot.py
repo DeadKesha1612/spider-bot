@@ -264,7 +264,8 @@ def clear_cart(call):
 @bot.callback_query_handler(func=lambda call: call.data == "checkout")
 def checkout_order(call):
     bot.answer_callback_query(call.id)
-    chat_id = call.message.chat.id
+    message = call.message
+    chat_id = message.chat.id
     cart = user_carts.get(chat_id, [])
     if not cart:
         return
@@ -281,11 +282,12 @@ def checkout_order(call):
             "cart": cart,
             "indices": bracelet_indices,
             "current_idx": 0,
-            "message_id": call.message.message_id
+            "message_id": message.message_id,
+            "user": message.from_user
         }
         ask_next_wrist_size(chat_id)
     else:
-        finalize_order(chat_id, cart, call.message.message_id)
+        finalize_order(chat_id, message.from_user, cart, message.message_id)
 
 def ask_next_wrist_size(chat_id):
     state = checkout_states.get(chat_id)
@@ -324,10 +326,11 @@ def process_wrist_size_input(message):
     else:
         cart = state["cart"]
         message_id = state.get("message_id")
+        user_info = state.get("user")
         clear_user_states(chat_id)
-        finalize_order(chat_id, cart, message_id)
+        finalize_order(chat_id, user_info, cart, message_id)
 
-def finalize_order(chat_id, cart, message_id=None):
+def finalize_order(chat_id, user_obj, cart, message_id=None):
     order_id = get_next_order_number()
     total = sum(item.get('price', 0) for item in cart)
     
@@ -346,8 +349,21 @@ def finalize_order(chat_id, cart, message_id=None):
         bot.send_message(chat_id, client_text, reply_markup=get_reply_markup())
         show_main_menu(chat_id)
 
-    # УВЕДОМЛЕНИЕ АДМИНУ С КНОПКОЙ ГОТОВНОСТИ
-    admin_text = f"🔥 Новый заказ №{order_id}!\n👤 Клиент ID: `{chat_id}`\n\n🛒 Состав заказа:\n"
+    # Формируем кликабельную ссылку на заказчика
+    if user_obj and user_obj.username:
+        customer_link = f"@{user_obj.username}"
+    elif user_obj and user_obj.first_name:
+        safe_name = user_obj.first_name.replace("[", "").replace("]", "")
+        customer_link = f"[{safe_name}](tg://user?id={chat_id})"
+    else:
+        customer_link = f"[Профиль](tg://user?id={chat_id})"
+
+    # УВЕДОМЛЕНИЕ АДМИНУ С КЛИКАБЕЛЬНЫМ КЛИЕНТОМ И КНОПКОЙ ГОТОВНОСТИ
+    admin_text = (
+        f"🔥 Новый заказ №{order_id}!\n"
+        f"👤 Заказчик: {customer_link} (ID: `{chat_id}`)\n\n"
+        f"🛒 Состав заказа:\n"
+    )
     for idx, item in enumerate(cart):
         admin_text += f"{idx + 1}. {item.get('name')} — {item.get('price')} ₽\n"
     admin_text += f"\n💰 Итого: {total} ₽"
@@ -363,7 +379,6 @@ def finalize_order(chat_id, cart, message_id=None):
 
     user_carts[chat_id] = []
 
-# ОБРАБОТЧИК КНОПКИ «ЗАКАЗ ГОТОВ» ДЛЯ АДМИНА
 @bot.callback_query_handler(func=lambda call: call.data.startswith("ready_"))
 def mark_order_ready(call):
     bot.answer_callback_query(call.id, "Статус обновлен!")
