@@ -57,7 +57,6 @@ CUSTOM_OPTIONS = {
 # --- ФУНКЦИИ РАБОТЫ С SUPABASE ---
 
 def load_products():
-    """Загружает все товары из облачной базы Supabase"""
     try:
         url = f"{SUPABASE_URL}/rest/v1/products?select=*"
         response = requests.get(url, headers=HEADERS)
@@ -90,7 +89,6 @@ def load_products():
     return {}
 
 def get_next_order_number():
-    """Получает следующий уникальный номер заказа из базы (строго по порядку)"""
     try:
         url = f"{SUPABASE_URL}/rest/v1/orders?select=order_id&order=order_id.desc&limit=1"
         response = requests.get(url, headers=HEADERS)
@@ -100,10 +98,9 @@ def get_next_order_number():
                 return int(rows[0]["order_id"]) + 1
     except Exception as e:
         print(f"Ошибка получения номера заказа: {e}")
-    return 1  # Если таблица пустая, начнется с 1
+    return 1
 
 def save_order_to_db(order_id, client_id, cart_items, total_price):
-    """Сохраняет заказ в Supabase"""
     try:
         url = f"{SUPABASE_URL}/rest/v1/orders"
         payload = {
@@ -118,7 +115,6 @@ def save_order_to_db(order_id, client_id, cart_items, total_price):
         print(f"Ошибка сохранения заказа в БД: {e}")
 
 def save_product_to_db(item_id, item_data):
-    """Сохраняет или обновляет товар в Supabase"""
     try:
         url = f"{SUPABASE_URL}/rest/v1/products"
         payload = {
@@ -134,17 +130,12 @@ def save_product_to_db(item_id, item_data):
         headers_upsert = HEADERS.copy()
         headers_upsert["Prefer"] = "resolution=merge-duplicates"
         response = requests.post(url, headers=headers_upsert, json=payload)
-        
-        if response.status_code not in [200, 201]:
-            print(f"Ошибка Supabase: {response.text}")
-            return False
-        return True
+        return response.status_code in [200, 201]
     except Exception as e:
         print(f"Исключение Python при сохранении: {e}")
         return False
 
 def delete_product_from_db(item_id):
-    """Удаляет товар из Supabase по ID"""
     try:
         url = f"{SUPABASE_URL}/rest/v1/products?id=eq.{item_id}"
         requests.delete(url, headers=HEADERS)
@@ -159,14 +150,13 @@ def home():
 
 @app.route(f'/{TOKEN}', methods=['POST'])
 def webhook():
-    content_type = request.headers.get('content-type', '')
-    if 'application/json' in content_type:
+    try:
         json_string = request.get_data().decode('utf-8')
         update = telebot.types.Update.de_json(json_string)
         bot.process_new_updates([update])
-        return '', 200
-    else:
-        return 'Forbidden', 403
+    except Exception as e:
+        print(f"Ошибка обработки апдейта: {e}")
+    return '', 200
 
 def clear_user_states(chat_id):
     for state_dict in (admin_states, custom_states, size_states):
@@ -174,7 +164,6 @@ def clear_user_states(chat_id):
             del state_dict[chat_id]
 
 def get_reply_markup():
-    """Постоянная кнопка внизу чата для запуска бота в 1 клик"""
     markup = telebot.types.ReplyKeyboardMarkup(resize_keyboard=True, persistent=True)
     markup.add(telebot.types.KeyboardButton("🕷 Запустить Храм Паука"))
     return markup
@@ -968,7 +957,6 @@ def handle_text_and_flows(message):
     chat_id = message.chat.id
     text_content = message.text.strip() if message.text else ""
 
-    # Жесткий сброс любых зависаний при отправке старта или кнопки
     if text_content in ["/start", "🕷 Запустить Храм Паука"]:
         try:
             bot.delete_message(chat_id, message.message_id)
