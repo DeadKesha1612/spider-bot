@@ -4,6 +4,7 @@ import json
 import requests
 from http.server import HTTPServer, BaseHTTPRequestHandler
 import threading
+import time
 
 TOKEN = "9263601739:AAFhakRpWA0uOrev0vQ7TRRk2iFLOMdn5Y8"
 bot = telebot.TeleBot(TOKEN)
@@ -117,9 +118,7 @@ def show_main_menu(chat_id, message_id=None):
             return
         except Exception:
             pass
-    # Исправлено: передаем обычный reply_markup вместо несуществующего reply_markup_keyboard
     bot.send_message(chat_id, text, reply_markup=reply_kb)
-    # Отправляем инлайн-меню следом или в одном сообщении
     bot.send_message(chat_id, "Выбери действие:", reply_markup=markup)
 
 @bot.callback_query_handler(func=lambda call: call.data == "catalog")
@@ -296,14 +295,20 @@ def run_server():
 
 if __name__ == '__main__':
     try:
+        bot.remove_webhook()
         requests.get(f"https://api.telegram.org/bot{TOKEN}/deleteWebhook?drop_pending_updates=true")
-        print("Вебхук сброшен.")
+        print("Вебхук и старые сессии сброшены.")
     except Exception as e:
-        print(f"Ошибка сброса вебхука: {e}")
+        print(f"Ошибка сброса: {e}")
 
     server_thread = threading.Thread(target=run_server)
     server_thread.daemon = True
     server_thread.start()
 
-    print("Запуск поллинга...")
-    bot.infinity_polling(skip_pending=True, timeout=60, long_polling_timeout=60)
+    print("Запуск поллинга с защитой от конфликтов...")
+    while True:
+        try:
+            bot.infinity_polling(none_stop=True, interval=1, timeout=30, long_polling_timeout=30)
+        except Exception as e:
+            print(f"Ошибка в поллинге: {e}. Переподключение через 5 секунд...")
+            time.sleep(5)
