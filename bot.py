@@ -316,12 +316,15 @@ def custom_start(call):
         "bead": None,
         "clasp": None,
         "clasp_price": 0,
-        "spacers": False
+        "spacers": False,
+        "wrist_size": None,
+        "step": "options"
     }
     show_custom_paracord_menu(chat_id, call.message.message_id)
 
 def show_custom_paracord_menu(chat_id, message_id=None):
     state = custom_states.get(chat_id, {})
+    state["step"] = "options"
     text = (
         "🎨 Конструктор изделия (Шаг 1: Паракорд и Плетение)\n\n"
         f"📌 Основа: {state.get('base_name')}\n"
@@ -419,6 +422,7 @@ def custom_step_bead(call):
     bot.answer_callback_query(call.id)
     chat_id = call.message.chat.id
     state = custom_states.get(chat_id, {})
+    state["step"] = "bead"
     
     text = (
         "🎨 Конструктор изделия (Шаг 2: Бусина)\n\n"
@@ -456,6 +460,7 @@ def custom_step_clasp(call):
     bot.answer_callback_query(call.id)
     chat_id = call.message.chat.id
     state = custom_states.get(chat_id, {})
+    state["step"] = "clasp"
     
     text = (
         "🎨 Конструктор изделия (Шаг 3: Застежка)\n\n"
@@ -472,7 +477,7 @@ def custom_step_clasp(call):
         
     markup.add(
         telebot.types.InlineKeyboardButton("⬅️ Назад к бусине", callback_data="custom_step_bead"),
-        telebot.types.InlineKeyboardButton("➡️ Далее: Итог", callback_data="custom_step_summary")
+        telebot.types.InlineKeyboardButton("➡️ Далее: Обхват запястья", callback_data="custom_step_wrist")
     )
     bot.edit_message_text(text, chat_id, call.message.message_id, reply_markup=markup)
 
@@ -486,11 +491,32 @@ def set_clasp(call):
         custom_states[chat_id]["clasp_price"] = CUSTOM_OPTIONS["clasps"].get(clasp_name, 0)
     custom_step_clasp(call)
 
+@bot.callback_query_handler(func=lambda call: call.data == "custom_step_wrist")
+def custom_step_wrist(call):
+    bot.answer_callback_query(call.id)
+    chat_id = call.message.chat.id
+    state = custom_states.get(chat_id, {})
+    state["step"] = "wrist"
+    
+    wrist_val = state.get('wrist_size') or '❌ Не указан'
+    text = (
+        "🎨 Конструктор изделия (Шаг 4: Обхват запястья)\n\n"
+        f"📏 Текущий обхват: {wrist_val} см\n\n"
+        "👇 Отправь в чат числом обхват своего запястья в сантиметрах (например: 18 или 17.5):"
+    )
+    markup = telebot.types.InlineKeyboardMarkup()
+    markup.add(telebot.types.InlineKeyboardButton("⬅️ Назад к застежке", callback_data="custom_step_clasp"))
+    if state.get("wrist_size"):
+        markup.add(telebot.types.InlineKeyboardButton("➡️ Далее: Итог", callback_data="custom_step_summary"))
+        
+    bot.edit_message_text(text, chat_id, call.message.message_id, reply_markup=markup)
+
 @bot.callback_query_handler(func=lambda call: call.data in ["custom_step_summary", "custom_toggle_spacers"])
 def custom_step_summary(call):
     bot.answer_callback_query(call.id)
     chat_id = call.message.chat.id
     state = custom_states.get(chat_id, {})
+    state["step"] = "summary"
     
     if call.data == "custom_toggle_spacers":
         state["spacers"] = not state.get("spacers", False)
@@ -504,6 +530,8 @@ def custom_step_summary(call):
     total_price = thick_price + weave_price + clasp_price + extra_spacers_price
     state["final_price"] = total_price
     
+    wrist_display = f"{state.get('wrist_size')} см" if state.get('wrist_size') else "⚠️ Не указан (стандарт)"
+    
     text = (
         "🔥 ВАШ СОБРАННЫЙ КАСТОМНЫЙ КОМПЛЕКТ 🔥\n"
         "Внимательно проверьте каждую деталь — именно так будет выглядеть ваше готовое изделие:\n\n"
@@ -515,6 +543,7 @@ def custom_step_summary(call):
         f"💀 Центральная бусина: {state.get('bead') or 'Без бусины'}\n"
         f"🪝 Тип застежки: {state.get('clasp') or 'Не указана'} — +{clasp_price} ₽\n"
         f"🔸 Бусины-разделители: {spacers_text}\n"
+        f"📐 Обхват запястья: {wrist_display}\n"
         f"━━━━━━━━━━━━━━━━━━━\n"
         f"💰 ИТОГОВАЯ СТОИМОСТЬ: {total_price} ₽\n\n"
         "💡 Всё верно? Нажимайте «Добавить в корзину» или измените любую деталь кнопками ниже:"
@@ -524,6 +553,7 @@ def custom_step_summary(call):
     markup.add(telebot.types.InlineKeyboardButton("🔄 Изменить паракорд / плетение", callback_data=f"custom_start_{state.get('item_id')}"))
     markup.add(telebot.types.InlineKeyboardButton("🔄 Изменить бусину", callback_data="custom_step_bead"))
     markup.add(telebot.types.InlineKeyboardButton("🔄 Изменить застежку", callback_data="custom_step_clasp"))
+    markup.add(telebot.types.InlineKeyboardButton("🔄 Изменить запястье", callback_data="custom_step_wrist"))
     
     spacer_btn_text = "❌ Убрать бусины-разделители" if state.get("spacers") else "➕ Добавить бусины-разделители (+100 ₽)"
     markup.add(telebot.types.InlineKeyboardButton(spacer_btn_text, callback_data="custom_toggle_spacers"))
@@ -531,7 +561,10 @@ def custom_step_summary(call):
     markup.add(telebot.types.InlineKeyboardButton("🛒 Добавить кастом в корзину", callback_data="custom_add_to_cart"))
     markup.add(telebot.types.InlineKeyboardButton("🔙 В каталог", callback_data="catalog"))
     
-    bot.edit_message_text(text, chat_id, call.message.message_id, reply_markup=markup)
+    try:
+        bot.edit_message_text(text, chat_id, call.message.message_id, reply_markup=markup)
+    except Exception:
+        bot.send_message(chat_id, text, reply_markup=markup)
 
 @bot.callback_query_handler(func=lambda call: call.data == "custom_add_to_cart")
 def custom_add_to_cart(call):
@@ -541,10 +574,11 @@ def custom_add_to_cart(call):
         bot.answer_callback_query(call.id, "❌ Данные кастома устарели.")
         return
         
+    wrist_val = f"{state.get('wrist_size')} см" if state.get('wrist_size') else "Не указан"
     custom_item = {
         "name": f"[Кастом] {state.get('base_name')} ({state.get('color')}, {state.get('weave')}, {state.get('bead')}, {state.get('clasp')})",
         "price": state.get("final_price", 0),
-        "material": f"Цвет: {state.get('color')}, Толщина: {state.get('thickness')}, Плетение: {state.get('weave')}, Бусина: {state.get('bead')}, Застежка: {state.get('clasp')}, Разделители: {'Да' if state.get('spacers') else 'Нет'}",
+        "material": f"Цвет: {state.get('color')}, Толщина: {state.get('thickness')}, Плетение: {state.get('weave')}, Бусина: {state.get('bead')}, Застежка: {state.get('clasp')}, Разделители: {'Да' if state.get('spacers') else 'Нет'}, Запястье: {wrist_val}",
         "time": "2-3 дня"
     }
     
@@ -771,135 +805,164 @@ def skip_photo(call):
         except Exception:
             bot.send_message(chat_id, text)
 
-@bot.message_handler(content_types=['text', 'photo'], func=lambda message: message.chat.id in admin_states)
-def handle_admin_flow(message):
-    if int(message.chat.id) != int(ADMIN_ID):
-        return
-        
+@bot.message_handler(content_types=['text', 'photo', 'document'], func=lambda message: message.chat.id in admin_states or message.chat.id in custom_states)
+def handle_text_and_flows(message):
     chat_id = message.chat.id
-    state = admin_states[chat_id]
-    action = state.get("action")
-    step = state.get("step")
 
-    if action == "add":
-        if step == "name":
+    # 1. ОБРАБОТКА ШАГОВ КАСТОМА (ДЛЯ ПОКУПАТЕЛЕЙ)
+    if chat_id in custom_states:
+        state = custom_states[chat_id]
+        if state.get("step") == "wrist":
             if not message.text:
-                bot.send_message(chat_id, "❌ Введи текстовое название:")
+                bot.send_message(chat_id, "❌ Введи обхват запястья цифрами (например: 18):")
                 return
-            state["name"] = message.text.strip()
-            state["step"] = "photo"
-            markup = telebot.types.InlineKeyboardMarkup()
-            markup.add(telebot.types.InlineKeyboardButton("Пропустить фото", callback_data="skip_photo"))
-            bot.send_message(chat_id, "🖼 Шаг 2/6: Отправь фотографию товара (или нажми кнопку):", reply_markup=markup)
-            return
+            state["wrist_size"] = message.text.strip()
             
-        elif step == "photo":
-            if message.photo:
-                state["photo"] = message.photo[-1].file_id
-                state["step"] = "material"
-                bot.send_message(chat_id, "🧵 Шаг 3/6: Укажи материал (например: Паракорд 550):")
-            else:
-                bot.send_message(chat_id, "🖼 Пожалуйста, отправь фото товара или нажми кнопку «Пропустить фото»:")
-            return
-            
-        elif step == "material":
-            if not message.text:
-                bot.send_message(chat_id, "❌ Введи материал текстом:")
-                return
-            state["material"] = message.text.strip()
-            state["step"] = "color"
-            bot.send_message(chat_id, "🎨 Шаг 4/6: Укажи цвет (например: Олива, Черный):")
+            # После ввода запястья автоматически переходим к итогу кастома
+            # Создаем фейковый объект call, чтобы дернуть функцию сводки
+            class DummyCall:
+                def __init__(self, msg):
+                    self.message = msg
+                    self.id = "dummy"
+                def answer_callback_query(self, *args, **kwargs):
+                    pass
+
+            call = DummyCall(message)
+            call.data = "custom_step_summary"
+            custom_step_summary(call)
             return
 
-        elif step == "color":
-            if not message.text:
-                bot.send_message(chat_id, "❌ Введи цвет текстом:")
-                return
-            color_val = message.text.strip()
-            base_mat = state.get("material", "")
-            state["material"] = f"{base_mat}, Цвет: {color_val}"
-            state["step"] = "price"
-            bot.send_message(chat_id, "💵 Шаг 5/6: Напиши цену товара цифрами (например: 600):")
-            return
-            
-        elif step == "price":
-            if not message.text:
-                bot.send_message(chat_id, "❌ Цена должна быть числом:")
-                return
-            try:
-                state["price"] = int(message.text.strip())
-                state["step"] = "time"
-                bot.send_message(chat_id, "⏱ Шаг 6/6: Укажи срок изготовления (например: 1-2 дня):")
-            except ValueError:
-                bot.send_message(chat_id, "❌ Ошибка! Цена должна быть целым числом (например: 600). Повтори ввод цены:")
-            return
-                
-        elif step == "time":
-            text_val = message.text.strip() if message.text else "1-2 дня"
-            state["time"] = text_val
-            
-            item_id = f"item_{int(os.urandom(3).hex(), 16)}"
-            item_data = {
-                "category": state["category"],
-                "name": state["name"],
-                "photo": state.get("photo"),
-                "price": state["price"],
-                "material": state["material"],
-                "time": state["time"],
-                "color_photos": {}
-            }
-            
-            success = save_product_to_db(item_id, item_data)
-            cat_key = state["category"]
-            
-            if chat_id in admin_states:
-                del admin_states[chat_id]
-            
-            if success:
-                bot.send_message(chat_id, f"🎉 Товар успешно добавлен в категорию «{CATEGORIES.get(cat_key)}»!")
-            else:
-                bot.send_message(chat_id, "⚠️ Ошибка сохранения в облако.")
-                
-            show_main_menu(chat_id)
-            return
+    # 2. ОБРАБОТКА АДМИНСКИХ ШАГОВ
+    if chat_id in admin_states and int(chat_id) == int(ADMIN_ID):
+        state = admin_states[chat_id]
+        action = state.get("action")
+        step = state.get("step")
 
-    elif action == "edit":
-        item_id = state["item_id"]
-        products = load_products()
-        item = products.get(item_id, {})
-        
-        if step == "name":
-            state["new_name"] = message.text.strip() if message.text else item.get('name')
-            state["step"] = "price"
-            bot.send_message(chat_id, f"💵 Шаг 2/3: Напиши новую цену (текущая: {item.get('price')}):")
-            return
-            
-        elif step == "price":
-            try:
-                state["new_price"] = int(message.text.strip())
-                state["step"] = "material"
-                bot.send_message(chat_id, f"🧵 Шаг 3/3: Укажи новый материал/цвет (текущий: {item.get('material')}):")
-            except ValueError:
-                bot.send_message(chat_id, "❌ Цена должна быть числом. Повтори ввод:")
-            return
-                
-        elif step == "material":
-            if not message.text:
-                bot.send_message(chat_id, "❌ Введи данные текстом:")
+        if action == "add":
+            if step == "name":
+                if not message.text:
+                    bot.send_message(chat_id, "❌ Введи текстовое название:")
+                    return
+                state["name"] = message.text.strip()
+                state["step"] = "photo"
+                markup = telebot.types.InlineKeyboardMarkup()
+                markup.add(telebot.types.InlineKeyboardButton("Пропустить фото", callback_data="skip_photo"))
+                bot.send_message(chat_id, "🖼 Шаг 2/6: Отправь фотографию товара (или нажми кнопку):", reply_markup=markup)
                 return
+                
+            elif step == "photo":
+                photo_id = None
+                if message.photo:
+                    photo_id = message.photo[-1].file_id
+                elif message.document:
+                    photo_id = message.document.file_id
+                    
+                if photo_id:
+                    state["photo"] = photo_id
+                    state["step"] = "material"
+                    bot.send_message(chat_id, "🧵 Шаг 3/6: Укажи материал (например: Паракорд 550):")
+                else:
+                    bot.send_message(chat_id, "🖼 Пожалуйста, отправь картинку (фото) или нажми кнопку «Пропустить фото»:")
+                return
+                
+            elif step == "material":
+                if not message.text:
+                    bot.send_message(chat_id, "❌ Введи материал текстом:")
+                    return
+                state["material"] = message.text.strip()
+                state["step"] = "color"
+                bot.send_message(chat_id, "🎨 Шаг 4/6: Укажи цвет (например: Олива, Черный):")
+                return
+
+            elif step == "color":
+                if not message.text:
+                    bot.send_message(chat_id, "❌ Введи цвет текстом:")
+                    return
+                color_val = message.text.strip()
+                base_mat = state.get("material", "")
+                state["material"] = f"{base_mat}, Цвет: {color_val}"
+                state["step"] = "price"
+                bot.send_message(chat_id, "💵 Шаг 5/6: Напиши цену товара цифрами (например: 600):")
+                return
+                
+            elif step == "price":
+                if not message.text:
+                    bot.send_message(chat_id, "❌ Цена должна быть числом:")
+                    return
+                try:
+                    state["price"] = int(message.text.strip())
+                    state["step"] = "time"
+                    bot.send_message(chat_id, "⏱ Шаг 6/6: Укажи срок изготовления (например: 1-2 дня):")
+                except ValueError:
+                    bot.send_message(chat_id, "❌ Ошибка! Цена должна быть целым числом (например: 600). Повтори ввод цены:")
+                return
+                    
+            elif step == "time":
+                text_val = message.text.strip() if message.text else "1-2 дня"
+                state["time"] = text_val
+                
+                item_id = f"item_{int(os.urandom(3).hex(), 16)}"
+                item_data = {
+                    "category": state["category"],
+                    "name": state["name"],
+                    "photo": state.get("photo"),
+                    "price": state["price"],
+                    "material": state["material"],
+                    "time": state["time"],
+                    "color_photos": {}
+                }
+                
+                success = save_product_to_db(item_id, item_data)
+                cat_key = state["category"]
+                
+                if chat_id in admin_states:
+                    del admin_states[chat_id]
+                
+                if success:
+                    bot.send_message(chat_id, f"🎉 Товар успешно добавлен в категорию «{CATEGORIES.get(cat_key)}»!")
+                else:
+                    bot.send_message(chat_id, "⚠️ Ошибка сохранения в облако.")
+                    
+                show_main_menu(chat_id)
+                return
+
+        elif action == "edit":
+            item_id = state["item_id"]
+            products = load_products()
+            item = products.get(item_id, {})
             
-            item["name"] = state["new_name"]
-            item["price"] = state["new_price"]
-            item["material"] = message.text.strip()
-            
-            save_product_to_db(item_id, item)
-            
-            if chat_id in admin_states:
-                del admin_states[chat_id]
-            
-            bot.send_message(chat_id, "✅ Товар успешно обновлен в облаке!")
-            show_main_menu(chat_id)
-            return
+            if step == "name":
+                state["new_name"] = message.text.strip() if message.text else item.get('name')
+                state["step"] = "price"
+                bot.send_message(chat_id, f"💵 Шаг 2/3: Напиши новую цену (текущая: {item.get('price')}):")
+                return
+                
+            elif step == "price":
+                try:
+                    state["new_price"] = int(message.text.strip())
+                    state["step"] = "material"
+                    bot.send_message(chat_id, f"🧵 Шаг 3/3: Укажи новый материал/цвет (текущий: {item.get('material')}):")
+                except ValueError:
+                    bot.send_message(chat_id, "❌ Цена должна быть числом. Повтори ввод:")
+                return
+                    
+            elif step == "material":
+                if not message.text:
+                    bot.send_message(chat_id, "❌ Введи данные текстом:")
+                    return
+                
+                item["name"] = state["new_name"]
+                item["price"] = state["new_price"]
+                item["material"] = message.text.strip()
+                
+                save_product_to_db(item_id, item)
+                
+                if chat_id in admin_states:
+                    del admin_states[chat_id]
+                
+                bot.send_message(chat_id, "✅ Товар успешно обновлен в облаке!")
+                show_main_menu(chat_id)
+                return
 
 if __name__ == '__main__':
     bot.remove_webhook()
