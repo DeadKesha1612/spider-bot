@@ -1168,7 +1168,7 @@ def handle_text_and_flows(message):
                 return
 
 if __name__ == '__main__':
-bot.remove_webhook()
+    bot.remove_webhook()
     bot.set_webhook(url=WEBHOOK_URL)
     
     try:
