@@ -26,8 +26,8 @@ HEADERS = {
 user_carts = {}
 admin_states = {}
 custom_states = {}
+size_states = {}
 active_orders = {}
-order_counter = 1000
 
 CATEGORIES = {
     "bracelets": "Браслеты",
@@ -89,6 +89,34 @@ def load_products():
         print(f"Исключение при запросе в Supabase (load): {e}")
     return {}
 
+def get_next_order_number():
+    """Получает следующий уникальный номер заказа из базы (чтобы не сбрасывался)"""
+    try:
+        url = f"{SUPABASE_URL}/rest/v1/orders?select=order_id&order=order_id.desc&limit=1"
+        response = requests.get(url, headers=HEADERS)
+        if response.status_code == 200:
+            rows = response.json()
+            if rows and "order_id" in rows[0]:
+                return int(rows[0]["order_id"]) + 1
+    except Exception as e:
+        print(f"Ошибка получения номера заказа: {e}")
+    return 1  # стартовый номер по порядку, если таблица пустая
+
+def save_order_to_db(order_id, client_id, cart_items, total_price):
+    """Сохраняет заказ в Supabase"""
+    try:
+        url = f"{SUPABASE_URL}/rest/v1/orders"
+        payload = {
+            "order_id": order_id,
+            "client_id": client_id,
+            "items": json.dumps(cart_items, ensure_ascii=False),
+            "total": total_price,
+            "status": "new"
+        }
+        requests.post(url, headers=HEADERS, json=payload)
+    except Exception as e:
+        print(f"Ошибка сохранения заказа в БД: {e}")
+
 def save_product_to_db(item_id, item_data):
     """Сохраняет или обновляет товар в Supabase"""
     try:
@@ -108,8 +136,7 @@ def save_product_to_db(item_id, item_data):
         response = requests.post(url, headers=headers_upsert, json=payload)
         
         if response.status_code not in [200, 201]:
-            error_msg = f"❌ Ошибка Supabase ({response.status_code}): {response.text}"
-            print(error_msg)
+            print(f"Ошибка Supabase: {response.text}")
             return False
         return True
     except Exception as e:
@@ -141,16 +168,17 @@ def webhook():
     else:
         return 'Forbidden', 403
 
+def clear_user_states(chat_id):
+    for state_dict in (admin_states, custom_states, size_states):
+        if chat_id in state_dict:
+            del state_dict[chat_id]
+
 @bot.message_handler(commands=['start'])
 def send_welcome(message):
     chat_id = message.chat.id
     user_carts[chat_id] = []
-    if chat_id in admin_states:
-        del admin_states[chat_id]
-    if chat_id in custom_states:
-        del custom_states[chat_id]
+    clear_user_states(chat_id)
     
-    # Удаляем сообщение пользователя с командой /start для чистоты диалога
     try:
         bot.delete_message(chat_id, message.message_id)
     except Exception:
@@ -180,6 +208,7 @@ def show_main_menu(chat_id, message_id=None):
 @bot.callback_query_handler(func=lambda call: call.data == "catalog")
 def open_catalog(call):
     bot.answer_callback_query(call.id)
+    clear_user_states(call.message.chat.id)
     markup = telebot.types.InlineKeyboardMarkup()
     
     for cat_key, cat_name in CATEGORIES.items():
@@ -191,6 +220,10 @@ def open_catalog(call):
     try:
         bot.edit_message_text(text, call.message.chat.id, call.message.message_id, reply_markup=markup)
     except Exception:
+        try:
+            bot.delete_message(call.message.chat.id, call.message.message_id)
+        except Exception:
+            pass
         bot.send_message(call.message.chat.id, text, reply_markup=markup)
 
 @bot.callback_query_handler(func=lambda call: call.data.startswith("cat_"))
@@ -236,7 +269,7 @@ def view_category_item(call):
     
     send_item_card(call.message.chat.id, item_id, item, index, cat_items, edit_message_id=call.message.message_id)
 
-def send_item_card(chat_id, item_id, item, index, cat_items, edit_message_id=None, selected_color=None):
+def send_item_card(chat_id, item_id, item, index, cat_items, edit_message_id=None):
     name = item.get('name', 'Товар')
     price = item.get('price', 0)
     material = item.get('material', 'Не указан')
@@ -257,7 +290,6 @@ def send_item_card(chat_id, item_id, item, index, cat_items, edit_message_id=Non
     if cat_key in ["bracelets", "lanyards"]:
         markup.add(telebot.types.InlineKeyboardButton("🎨 Собрать свой вариант", callback_data=f"custom_start_{item_id}"))
     
-    total_items = len(cat_items)
     nav_buttons = [
         telebot.types.InlineKeyboardButton("⬅️ Назад", callback_data=f"cat_{cat_key}_{index - 1}"),
         telebot.types.InlineKeyboardButton("Вперед ➡️", callback_data=f"cat_{cat_key}_{index + 1}")
@@ -280,7 +312,6 @@ def send_item_card(chat_id, item_id, item, index, cat_items, edit_message_id=Non
                 media = telebot.types.InputMediaPhoto(current_photo, caption=text)
                 bot.edit_message_media(media, chat_id, edit_message_id, reply_markup=markup)
             else:
-                # Если у товара нет фото, а прошлое сообщение было с фото, Telegram требует удалить и отправить текст или использовать edit_message_text
                 try:
                     bot.edit_message_text(text, chat_id, edit_message_id, reply_markup=markup)
                 except Exception:
@@ -308,8 +339,11 @@ def custom_start(call):
         return
         
     chat_id = call.message.chat.id
+    cat_key = str(item.get("category", "bracelets")).strip().lower()
+    
     custom_states[chat_id] = {
         "item_id": item_id,
+        "category": cat_key,
         "base_name": item.get("name"),
         "color": None,
         "thickness": None,
@@ -320,10 +354,16 @@ def custom_start(call):
         "clasp": None,
         "clasp_price": 0,
         "spacers": False,
-        "wrist_size": None,
-        "step": "options"
+        "measure_size": None,
+        "step": "options",
+        "msg_id": call.message.message_id
     }
-    show_custom_paracord_menu(chat_id, call.message.message_id)
+    
+    try:
+        bot.delete_message(chat_id, call.message.message_id)
+    except Exception:
+        pass
+    show_custom_paracord_menu(chat_id)
 
 def show_custom_paracord_menu(chat_id, message_id=None):
     state = custom_states.get(chat_id, {})
@@ -352,10 +392,12 @@ def show_custom_paracord_menu(chat_id, message_id=None):
     if message_id:
         try:
             bot.edit_message_text(text, chat_id, message_id, reply_markup=markup)
+            state["msg_id"] = message_id
             return
         except Exception:
             pass
-    bot.send_message(chat_id, text, reply_markup=markup)
+    sent = bot.send_message(chat_id, text, reply_markup=markup)
+    state["msg_id"] = sent.message_id
 
 @bot.callback_query_handler(func=lambda call: call.data == "custom_choose_color")
 def custom_choose_color(call):
@@ -464,6 +506,8 @@ def custom_step_clasp(call):
     chat_id = call.message.chat.id
     state = custom_states.get(chat_id, {})
     state["step"] = "clasp"
+    cat_key = state.get("category", "bracelets")
+    next_btn_label = "➡️ Далее: Длина шнура" if cat_key == "lanyards" else "➡️ Далее: Обхват запястья"
     
     text = (
         "🎨 Конструктор изделия (Шаг 3: Застежка)\n\n"
@@ -480,7 +524,7 @@ def custom_step_clasp(call):
         
     markup.add(
         telebot.types.InlineKeyboardButton("⬅️ Назад к бусине", callback_data="custom_step_bead"),
-        telebot.types.InlineKeyboardButton("➡️ Далее: Обхват запястья", callback_data="custom_step_wrist")
+        telebot.types.InlineKeyboardButton(next_btn_label, callback_data="custom_step_measure")
     )
     bot.edit_message_text(text, chat_id, call.message.message_id, reply_markup=markup)
 
@@ -494,36 +538,42 @@ def set_clasp(call):
         custom_states[chat_id]["clasp_price"] = CUSTOM_OPTIONS["clasps"].get(clasp_name, 0)
     custom_step_clasp(call)
 
-@bot.callback_query_handler(func=lambda call: call.data == "custom_step_wrist")
-def custom_step_wrist(call):
+@bot.callback_query_handler(func=lambda call: call.data == "custom_step_measure")
+def custom_step_measure(call):
     bot.answer_callback_query(call.id)
     chat_id = call.message.chat.id
     state = custom_states.get(chat_id, {})
-    state["step"] = "wrist"
+    state["step"] = "measure"
+    state["msg_id"] = call.message.message_id
     
-    wrist_val = state.get('wrist_size') or '❌ Не указан'
-    text = (
-        "🎨 Конструктор изделия (Шаг 4: Обхват запястья)\n\n"
-        f"📏 Текущий обхват: {wrist_val} см\n\n"
-        "👇 Отправь в чат числом обхват своего запястья в сантиметрах (например: 18 или 17.5):"
-    )
+    cat_key = state.get("category", "bracelets")
+    val = state.get('measure_size') or '❌ Не указано'
+    
+    if cat_key == "lanyards":
+        text = (
+            "🎨 Конструктор изделия (Шаг 4: Длина шнура)\n\n"
+            f"📏 Текущая длина части со шнуром: {val} см\n\n"
+            "👇 Напиши в чат числом длину той части темляка/брелока, которая будет со шнуром (в см, например: 10 или 12):"
+        )
+    else:
+        text = (
+            "🎨 Конструктор изделия (Шаг 4: Обхват запястья)\n\n"
+            f"📏 Текущий обхват запястья: {val} см\n\n"
+            "👇 Напиши в чат числом обхват своего запястья в сантиметрах (например: 18 или 17.5):"
+        )
+        
     markup = telebot.types.InlineKeyboardMarkup()
     markup.add(telebot.types.InlineKeyboardButton("⬅️ Назад к застежке", callback_data="custom_step_clasp"))
-    if state.get("wrist_size"):
+    if state.get("measure_size"):
         markup.add(telebot.types.InlineKeyboardButton("➡️ Далее: Итог", callback_data="custom_step_summary"))
         
     bot.edit_message_text(text, chat_id, call.message.message_id, reply_markup=markup)
 
-@bot.callback_query_handler(func=lambda call: call.data in ["custom_step_summary", "custom_toggle_spacers"])
-def custom_step_summary(call):
-    bot.answer_callback_query(call.id)
-    chat_id = call.message.chat.id
+def render_custom_summary(chat_id, message_id=None):
     state = custom_states.get(chat_id, {})
     state["step"] = "summary"
+    cat_key = state.get("category", "bracelets")
     
-    if call.data == "custom_toggle_spacers":
-        state["spacers"] = not state.get("spacers", False)
-        
     spacers_text = "Да — красивые бусины по бокам (+100 ₽)" if state.get("spacers") else "Нет (чистый вид)"
     extra_spacers_price = 100 if state.get("spacers") else 0
     thick_price = state.get("thickness_price", 0)
@@ -533,7 +583,9 @@ def custom_step_summary(call):
     total_price = thick_price + weave_price + clasp_price + extra_spacers_price
     state["final_price"] = total_price
     
-    wrist_display = f"{state.get('wrist_size')} см" if state.get('wrist_size') else "⚠️ Не указан (стандарт)"
+    measure_label = "Длина части со шнуром" if cat_key == "lanyards" else "Обхват запястья"
+    measure_display = f"{state.get('measure_size')} см" if state.get('measure_size') else "⚠️ Не указано"
+    change_measure_btn = "🔄 Изменить длину шнура" if cat_key == "lanyards" else "🔄 Изменить запястье"
     
     text = (
         "🔥 ВАШ СОБРАННЫЙ КАСТОМНЫЙ КОМПЛЕКТ 🔥\n"
@@ -546,7 +598,7 @@ def custom_step_summary(call):
         f"💀 Центральная бусина: {state.get('bead') or 'Без бусины'}\n"
         f"🪝 Тип застежки: {state.get('clasp') or 'Не указана'} — +{clasp_price} ₽\n"
         f"🔸 Бусины-разделители: {spacers_text}\n"
-        f"📐 Обхват запястья: {wrist_display}\n"
+        f"📐 {measure_label}: {measure_display}\n"
         f"━━━━━━━━━━━━━━━━━━━\n"
         f"💰 ИТОГОВАЯ СТОИМОСТЬ: {total_price} ₽\n\n"
         "💡 Всё верно? Нажимайте «Добавить в корзину» или измените любую деталь кнопками ниже:"
@@ -556,18 +608,37 @@ def custom_step_summary(call):
     markup.add(telebot.types.InlineKeyboardButton("🔄 Изменить паракорд / плетение", callback_data=f"custom_start_{state.get('item_id')}"))
     markup.add(telebot.types.InlineKeyboardButton("🔄 Изменить бусину", callback_data="custom_step_bead"))
     markup.add(telebot.types.InlineKeyboardButton("🔄 Изменить застежку", callback_data="custom_step_clasp"))
-    markup.add(telebot.types.InlineKeyboardButton("🔄 Изменить запястье", callback_data="custom_step_wrist"))
+    markup.add(telebot.types.InlineKeyboardButton(change_measure_btn, callback_data="custom_step_measure"))
     
     spacer_btn_text = "❌ Убрать бусины-разделители" if state.get("spacers") else "➕ Добавить бусины-разделители (+100 ₽)"
     markup.add(telebot.types.InlineKeyboardButton(spacer_btn_text, callback_data="custom_toggle_spacers"))
     
-    markup.add(telebot.types.InlineKeyboardButton("🛒 Добавить кастом в корзину", callback_data="custom_add_to_cart"))
+    if state.get("measure_size"):
+        markup.add(telebot.types.InlineKeyboardButton("🛒 Добавить кастом в корзину", callback_data="custom_add_to_cart"))
+    else:
+        markup.add(telebot.types.InlineKeyboardButton("⚠️ Укажи размер выше", callback_data="custom_step_measure"))
+        
     markup.add(telebot.types.InlineKeyboardButton("🔙 В каталог", callback_data="catalog"))
     
-    try:
-        bot.edit_message_text(text, chat_id, call.message.message_id, reply_markup=markup)
-    except Exception:
-        bot.send_message(chat_id, text, reply_markup=markup)
+    target_id = message_id or state.get("msg_id")
+    if target_id:
+        try:
+            bot.edit_message_text(text, chat_id, target_id, reply_markup=markup)
+            state["msg_id"] = target_id
+            return
+        except Exception:
+            pass
+    sent = bot.send_message(chat_id, text, reply_markup=markup)
+    state["msg_id"] = sent.message_id
+
+@bot.callback_query_handler(func=lambda call: call.data in ["custom_step_summary", "custom_toggle_spacers"])
+def custom_step_summary(call):
+    bot.answer_callback_query(call.id)
+    chat_id = call.message.chat.id
+    state = custom_states.get(chat_id, {})
+    if call.data == "custom_toggle_spacers":
+        state["spacers"] = not state.get("spacers", False)
+    render_custom_summary(chat_id, call.message.message_id)
 
 @bot.callback_query_handler(func=lambda call: call.data == "custom_add_to_cart")
 def custom_add_to_cart(call):
@@ -577,11 +648,14 @@ def custom_add_to_cart(call):
         bot.answer_callback_query(call.id, "❌ Данные кастома устарели.")
         return
         
-    wrist_val = f"{state.get('wrist_size')} см" if state.get('wrist_size') else "Не указан"
+    cat_key = state.get("category", "bracelets")
+    measure_label = "Длина шнура" if cat_key == "lanyards" else "Запястье"
+    measure_val = f"{state.get('measure_size')} см" if state.get('measure_size') else "Не указано"
+    
     custom_item = {
         "name": f"[Кастом] {state.get('base_name')} ({state.get('color')}, {state.get('weave')}, {state.get('bead')}, {state.get('clasp')})",
         "price": state.get("final_price", 0),
-        "material": f"Цвет: {state.get('color')}, Толщина: {state.get('thickness')}, Плетение: {state.get('weave')}, Бусина: {state.get('bead')}, Застежка: {state.get('clasp')}, Разделители: {'Да' if state.get('spacers') else 'Нет'}, Запястье: {wrist_val}",
+        "material": f"Цвет: {state.get('color')}, Толщина: {state.get('thickness')}, Плетение: {state.get('weave')}, Бусина: {state.get('bead')}, Застежка: {state.get('clasp')}, Разделители: {'Да' if state.get('spacers') else 'Нет'}, {measure_label}: {measure_val}",
         "time": "2-3 дня"
     }
     
@@ -603,15 +677,53 @@ def add_to_cart(call):
     products = load_products()
     item = products.get(item_id)
     
-    if item:
-        chat_id = call.message.chat.id
-        if chat_id not in user_carts:
-            user_carts[chat_id] = []
-            
-        user_carts[chat_id].append(item)
-        bot.answer_callback_query(call.id, f"✅ Добавлено в корзину!")
-    else:
+    if not item:
         bot.answer_callback_query(call.id, "❌ Товар не найден.")
+        return
+        
+    chat_id = call.message.chat.id
+    cat_key = str(item.get("category", "")).strip().lower()
+    
+    # Для браслетов и темляков/брелоков из каталога обязательно спрашиваем замер перед добавлением в корзину
+    if cat_key in ["bracelets", "lanyards"] or "браслет" in cat_key or "темляк" in cat_key:
+        bot.answer_callback_query(call.id)
+        
+        is_lanyard = (cat_key == "lanyards" or "темляк" in cat_key or "брелок" in cat_key)
+        measure_type = "lanyard" if is_lanyard else "wrist"
+        
+        if is_lanyard:
+            prompt_text = (
+                f"📌 {item.get('name')}\n\n"
+                "📏 Укажи длину той части темляка/брелока, которая будет со шнуром (в см, например: 10 или 12):"
+            )
+        else:
+            prompt_text = (
+                f"📌 {item.get('name')}\n\n"
+                "📏 Укажи обхват своего запястья в сантиметрах, чтобы браслет сидел четко (например: 18 или 17.5):"
+            )
+            
+        markup = telebot.types.InlineKeyboardMarkup()
+        markup.add(telebot.types.InlineKeyboardButton("❌ Отмена", callback_data="catalog"))
+        
+        try:
+            bot.delete_message(chat_id, call.message.message_id)
+        except Exception:
+            pass
+            
+        sent = bot.send_message(chat_id, prompt_text, reply_markup=markup)
+        size_states[chat_id] = {
+            "item": item,
+            "measure_type": measure_type,
+            "msg_id": sent.message_id
+        }
+        return
+
+    # Остальные товары (бусины, фигурки) сразу добавляем в корзину
+    if chat_id not in user_carts:
+        user_carts[chat_id] = []
+        
+    user_carts[chat_id].append(item)
+    bot.answer_callback_query(call.id, "✅ Добавлено в корзину!")
 
 @bot.callback_query_handler(func=lambda call: call.data == "view_cart")
 def view_cart(call):
@@ -644,6 +756,10 @@ def view_cart(call):
     try:
         bot.edit_message_text(text, chat_id, call.message.message_id, reply_markup=markup)
     except Exception:
+        try:
+            bot.delete_message(chat_id, call.message.message_id)
+        except Exception:
+            pass
         bot.send_message(chat_id, text, reply_markup=markup)
 
 @bot.callback_query_handler(func=lambda call: call.data == "clear_cart")
@@ -653,27 +769,25 @@ def clear_cart(call):
 
 @bot.callback_query_handler(func=lambda call: call.data == "checkout")
 def checkout_order(call):
-    global order_counter
     bot.answer_callback_query(call.id)
     chat_id = call.message.chat.id
     cart = user_carts.get(chat_id, [])
     if not cart:
         return
         
-    order_id = order_counter
-    order_counter += 1
-    
+    order_id = get_next_order_number()
     active_orders[order_id] = chat_id
     
+    total = sum(item.get('price', 0) for item in cart)
+    save_order_to_db(order_id, chat_id, cart, total)
+    
     order_text = f"🚨 НОВЫЙ ЗАКАЗ №{order_id}!\n(ID клиента: {chat_id})\n\n"
-    total = 0
     for item in cart:
         name = item.get('name', 'Товар')
         price = item.get('price', 0)
         order_text += f"• {name} — {price} ₽\n"
         if item.get('material'):
             order_text += f"   └ {item.get('material')}\n"
-        total += price
     order_text += f"\n💰 Сумма: {total} ₽"
     
     admin_markup = telebot.types.InlineKeyboardMarkup()
@@ -696,10 +810,7 @@ def checkout_order(call):
 def back_to_menu(call):
     bot.answer_callback_query(call.id)
     chat_id = call.message.chat.id
-    if chat_id in admin_states:
-        del admin_states[chat_id]
-    if chat_id in custom_states:
-        del custom_states[chat_id]
+    clear_user_states(chat_id)
     show_main_menu(chat_id, call.message.message_id)
 
 # --- АДМИНКА ---
@@ -759,11 +870,11 @@ def admin_add_start(call):
     
     text = f"✍️ [Добавление в «{CATEGORIES.get(cat_key)}»] Шаг 1/6: Напиши название товара:"
     try:
-        # Если прошлое сообщение было с фото, бот удалит его и создаст текстовое, чтобы не было ошибки медиаконтейнера
         bot.delete_message(call.message.chat.id, call.message.message_id)
     except Exception:
         pass
-    bot.send_message(call.message.chat.id, text, reply_markup=markup)
+    sent = bot.send_message(call.message.chat.id, text, reply_markup=markup)
+    admin_states[call.message.chat.id]["msg_id"] = sent.message_id
 
 @bot.callback_query_handler(func=lambda call: call.data.startswith("admin_del_"))
 def admin_delete_item(call):
@@ -795,8 +906,14 @@ def admin_edit_start(call):
         bot.answer_callback_query(call.id, "❌ Товар не найден.")
         return
         
-    admin_states[call.message.chat.id] = {"action": "edit", "item_id": item_id, "step": "name"}
-    bot.send_message(call.message.chat.id, f"✏️ [Редактирование: {item.get('name')}]\nШаг 1/3: Напиши новое название:")
+    try:
+        bot.delete_message(call.message.chat.id, call.message.message_id)
+    except Exception:
+        pass
+    markup = telebot.types.InlineKeyboardMarkup()
+    markup.add(telebot.types.InlineKeyboardButton("❌ Отмена", callback_data="catalog"))
+    sent = bot.send_message(call.message.chat.id, f"✏️ [Редактирование: {item.get('name')}]\nШаг 1/3: Напиши новое название:", reply_markup=markup)
+    admin_states[call.message.chat.id] = {"action": "edit", "item_id": item_id, "step": "name", "msg_id": sent.message_id}
 
 @bot.callback_query_handler(func=lambda call: call.data == "skip_photo")
 def skip_photo(call):
@@ -806,45 +923,68 @@ def skip_photo(call):
         admin_states[chat_id]["photo"] = None
         admin_states[chat_id]["step"] = "material"
         text = "🧵 Шаг 3/6: Укажи материал (например: Паракорд 550):"
-        try:
-            bot.delete_message(chat_id, call.message.message_id)
-        except Exception:
-            pass
         markup = telebot.types.InlineKeyboardMarkup()
         markup.add(telebot.types.InlineKeyboardButton("❌ Отмена", callback_data="catalog"))
-        bot.send_message(chat_id, text, reply_markup=markup)
+        try:
+            bot.edit_message_text(text, chat_id, call.message.message_id, reply_markup=markup)
+        except Exception:
+            sent = bot.send_message(chat_id, text, reply_markup=markup)
+            admin_states[chat_id]["msg_id"] = sent.message_id
 
-@bot.message_handler(content_types=['text', 'photo', 'document'], func=lambda message: message.chat.id in admin_states or message.chat.id in custom_states)
+@bot.message_handler(content_types=['text', 'photo', 'document'], func=lambda message: message.chat.id in admin_states or message.chat.id in custom_states or message.chat.id in size_states)
 def handle_text_and_flows(message):
     chat_id = message.chat.id
 
-    # Удаляем сообщение с вводом от админа/пользователя, чтобы диалог был абсолютно чистым
     try:
         bot.delete_message(chat_id, message.message_id)
     except Exception:
         pass
 
-    # 1. ОБРАБОТКА ШАГОВ КАСТОМА (ДЛЯ ПОКУПАТЕЛЕЙ)
+    # 1. ВВОД ЗАМЕРА ДЛЯ ГОТОВОГО ТОВАРА ИЗ КАТАЛОГА (ЗАПЯСТЬЕ ИЛИ ДЛИНА ШНУРА)
+    if chat_id in size_states:
+        if not message.text:
+            return
+        state = size_states[chat_id]
+        val = message.text.strip()
+        item = state["item"].copy()
+        measure_type = state["measure_type"]
+        target_msg_id = state.get("msg_id")
+        
+        label = "Длина части со шнуром" if measure_type == "lanyard" else "Обхват запястья"
+        old_mat = item.get("material", "")
+        item["material"] = f"{old_mat} | {label}: {val} см" if old_mat else f"{label}: {val} см"
+        
+        if chat_id not in user_carts:
+            user_carts[chat_id] = []
+        user_carts[chat_id].append(item)
+        
+        del size_states[chat_id]
+        
+        markup = telebot.types.InlineKeyboardMarkup()
+        markup.add(telebot.types.InlineKeyboardButton("🛒 Перейти в корзину", callback_data="view_cart"))
+        markup.add(telebot.types.InlineKeyboardButton("🛍 Продолжить покупки", callback_data="catalog"))
+        
+        done_text = f"✅ Товар «{item.get('name')}» ({label}: {val} см) добавлен в корзину!"
+        try:
+            if target_msg_id:
+                bot.edit_message_text(done_text, chat_id, target_msg_id, reply_markup=markup)
+                return
+        except Exception:
+            pass
+        bot.send_message(chat_id, done_text, reply_markup=markup)
+        return
+
+    # 2. КАСТОМ
     if chat_id in custom_states:
         state = custom_states[chat_id]
-        if state.get("step") == "wrist":
+        if state.get("step") == "measure":
             if not message.text:
                 return
-            state["wrist_size"] = message.text.strip()
-            
-            class DummyCall:
-                def __init__(self, msg):
-                    self.message = msg
-                    self.id = "dummy"
-                def answer_callback_query(self, *args, **kwargs):
-                    pass
-
-            call = DummyCall(message)
-            call.data = "custom_step_summary"
-            custom_step_summary(call)
+            state["measure_size"] = message.text.strip()
+            render_custom_summary(chat_id)
             return
 
-    # 2. ОБРАБОТКА АДМИНСКИХ ШАГОВ (РЕДАКТИРУЕМ ТО САМОЕ СООБЩЕНИЕ ИЛИ ШЛЕМ ОДНО)
+    # 3. АДМИНКА
     if chat_id in admin_states and int(chat_id) == int(ADMIN_ID):
         state = admin_states[chat_id]
         action = state.get("action")
@@ -858,12 +998,10 @@ def handle_text_and_flows(message):
                 reply_markup.add(telebot.types.InlineKeyboardButton("❌ Отмена", callback_data="catalog"))
             try:
                 if target_msg_id:
-                    # Пробуем отредактировать прошлое текстовое сообщение
                     bot.edit_message_text(new_text, chat_id, target_msg_id, reply_markup=reply_markup)
                 else:
                     raise Exception()
             except Exception:
-                # Если прошлое сообщение было с фото или удалено, отправляем новое и запоминаем его ID
                 sent = bot.send_message(chat_id, new_text, reply_markup=reply_markup)
                 state["msg_id"] = sent.message_id
 
@@ -957,6 +1095,53 @@ def handle_text_and_flows(message):
                 else:
                     bot.send_message(chat_id, "⚠️ Ошибка сохранения в облако.")
                     
+                show_main_menu(chat_id)
+                return
+
+        elif action == "edit":
+            item_id = state["item_id"]
+            products = load_products()
+            item = products.get(item_id, {})
+            
+            if step == "name":
+                if not message.text:
+                    return
+                state["new_name"] = message.text.strip()
+                state["step"] = "price"
+                update_admin_prompt(f"💵 Шаг 2/3: Напиши новую цену (текущая: {item.get('price')}):")
+                return
+                
+            elif step == "price":
+                if not message.text:
+                    return
+                try:
+                    state["new_price"] = int(message.text.strip())
+                    state["step"] = "material"
+                    update_admin_prompt(f"🧵 Шаг 3/3: Укажи новый материал/цвет (текущий: {item.get('material')}):")
+                except ValueError:
+                    update_admin_prompt("❌ Цена должна быть числом. Повтори ввод:")
+                return
+                    
+            elif step == "material":
+                if not message.text:
+                    return
+                
+                item["name"] = state["new_name"]
+                item["price"] = state["new_price"]
+                item["material"] = message.text.strip()
+                
+                save_product_to_db(item_id, item)
+                
+                if chat_id in admin_states:
+                    del admin_states[chat_id]
+                
+                try:
+                    if target_msg_id:
+                        bot.delete_message(chat_id, target_msg_id)
+                except Exception:
+                    pass
+                
+                bot.send_message(chat_id, "✅ Товар успешно обновлен в облаке!")
                 show_main_menu(chat_id)
                 return
 
