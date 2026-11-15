@@ -117,7 +117,10 @@ def show_main_menu(chat_id, message_id=None):
             return
         except Exception:
             pass
-    bot.send_message(chat_id, text, reply_markup=markup, reply_markup_keyboard=reply_kb)
+    # Исправлено: передаем обычный reply_markup вместо несуществующего reply_markup_keyboard
+    bot.send_message(chat_id, text, reply_markup=reply_kb)
+    # Отправляем инлайн-меню следом или в одном сообщении
+    bot.send_message(chat_id, "Выбери действие:", reply_markup=markup)
 
 @bot.callback_query_handler(func=lambda call: call.data == "catalog")
 def open_catalog(call):
@@ -156,7 +159,6 @@ def view_category_item(call):
                 cat_items.append((item_id, item))
     
     markup = telebot.types.InlineKeyboardMarkup()
-    is_admin = (int(call.message.chat.id) == int(ADMIN_ID))
     
     if not cat_items:
         text = f"📁 Категория: {CATEGORIES.get(cat_key, 'Товары')}\n\nВ этой категории пока нет товаров."
@@ -278,12 +280,12 @@ def back_to_menu(call):
     bot.answer_callback_query(call.id)
     show_main_menu(call.message.chat.id, call.message.message_id)
 
-# --- МИНИ-СЕРВЕР ДЛЯ УДЕРЖАНИЯ ПОРТА НА RENDER (БЕСПЛАТНО) ---
+# --- МИНИ-СЕРВЕР ДЛЯ УДЕРЖАНИЯ ПОРТА НА RENDER ---
 class SimpleHandler(BaseHTTPRequestHandler):
     def do_GET(self):
         self.send_response(200)
         self.end_headers()
-        self.wfile.write(b"OK")
+        self.wfile.write(b"Bot is active via Long Polling!")
     def log_message(self, format, *args):
         pass
 
@@ -293,14 +295,12 @@ def run_server():
     server.serve_forever()
 
 if __name__ == '__main__':
-    # Сбрасываем старый вебхук перед поллингом
     try:
         requests.get(f"https://api.telegram.org/bot{TOKEN}/deleteWebhook?drop_pending_updates=true")
         print("Вебхук сброшен.")
     except Exception as e:
         print(f"Ошибка сброса вебхука: {e}")
 
-    # Запускаем HTTP-сервер для удержания порта в фоновом потоке
     server_thread = threading.Thread(target=run_server)
     server_thread.daemon = True
     server_thread.start()
