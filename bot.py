@@ -90,7 +90,7 @@ def load_products():
     return {}
 
 def get_next_order_number():
-    """Получает следующий уникальный номер заказа из базы (чтобы не сбрасывался)"""
+    """Получает следующий уникальный номер заказа из базы (строго с 1)"""
     try:
         url = f"{SUPABASE_URL}/rest/v1/orders?select=order_id&order=order_id.desc&limit=1"
         response = requests.get(url, headers=HEADERS)
@@ -100,7 +100,7 @@ def get_next_order_number():
                 return int(rows[0]["order_id"]) + 1
     except Exception as e:
         print(f"Ошибка получения номера заказа: {e}")
-    return 1  # стартовый номер по порядку, если таблица пустая
+    return 1  # Первый заказ будет ровно №1
 
 def save_order_to_db(order_id, client_id, cart_items, total_price):
     """Сохраняет заказ в Supabase"""
@@ -173,17 +173,24 @@ def clear_user_states(chat_id):
         if chat_id in state_dict:
             del state_dict[chat_id]
 
+def get_reply_markup():
+    """Постоянная кнопка внизу чата для запуска бота в 1 клик"""
+    markup = telebot.types.ReplyKeyboardMarkup(resize_keyboard=True, persistent=True)
+    markup.add(telebot.types.KeyboardButton("🕷 Запустить Храм Паука"))
+    return markup
+
 @bot.message_handler(commands=['start'])
 def send_welcome(message):
     chat_id = message.chat.id
     user_carts[chat_id] = []
     clear_user_states(chat_id)
-    
-    try:
-        bot.delete_message(chat_id, message.message_id)
-    except Exception:
-        pass
-        
+    show_main_menu(chat_id)
+
+@bot.message_handler(func=lambda msg: msg.text == "🕷 Запустить Храм Паука")
+def handle_reply_start(message):
+    chat_id = message.chat.id
+    user_carts[chat_id] = []
+    clear_user_states(chat_id)
     show_main_menu(chat_id)
 
 def show_main_menu(chat_id, message_id=None):
@@ -195,13 +202,19 @@ def show_main_menu(chat_id, message_id=None):
         "Приветствую! Добро пожаловать в мастерскую Храм Паука.\n\n"
         "Главное меню:"
     )
+    reply_kb = get_reply_markup()
     if message_id:
         try:
             bot.edit_message_text(text, chat_id, message_id, reply_markup=markup)
             return
         except Exception:
             pass
-    bot.send_message(chat_id, text, reply_markup=markup)
+    bot.send_message(chat_id, text, reply_markup=markup, reply_markup_keyboard=reply_kb)
+
+# Переопределим отправку с клавиатурой внизу
+def send_menu_with_keyboard(chat_id, text, markup):
+    reply_kb = get_reply_markup()
+    bot.send_message(chat_id, text, reply_markup=markup, reply_markup_keyboard=reply_kb)
 
 # --- КАТАЛОГ И КАТЕГОРИИ ---
 
@@ -214,6 +227,7 @@ def open_catalog(call):
     for cat_key, cat_name in CATEGORIES.items():
         markup.add(telebot.types.InlineKeyboardButton(cat_name, callback_data=f"cat_{cat_key}_0"))
         
+    markup.add(telebot.types.InlineKeyboardButton("🛒 Корзина", callback_data="view_cart"))
     markup.add(telebot.types.InlineKeyboardButton("🔙 Главное меню", callback_data="main_menu"))
     
     text = "🛍 Выбери категорию товаров:"
@@ -256,6 +270,7 @@ def view_category_item(call):
         markup.row(*nav_buttons)
         if is_admin:
             markup.add(telebot.types.InlineKeyboardButton("➕ Добавить товар", callback_data=f"admin_add_{cat_key}"))
+        markup.add(telebot.types.InlineKeyboardButton("🛒 Корзина", callback_data="view_cart"))
         markup.add(telebot.types.InlineKeyboardButton("🔙 К категориям", callback_data="catalog"))
         try:
             bot.edit_message_text(text, call.message.chat.id, call.message.message_id, reply_markup=markup)
@@ -304,6 +319,7 @@ def send_item_card(chat_id, item_id, item, index, cat_items, edit_message_id=Non
             telebot.types.InlineKeyboardButton("🗑 Удалить", callback_data=f"admin_del_{cat_key}_{index}_{item_id}")
         )
 
+    markup.add(telebot.types.InlineKeyboardButton("🛒 Корзина", callback_data="view_cart"))
     markup.add(telebot.types.InlineKeyboardButton("🔙 К категориям", callback_data="catalog"))
 
     if edit_message_id:
@@ -387,6 +403,7 @@ def show_custom_paracord_menu(chat_id, message_id=None):
     if state.get("color") and state.get("thickness") and state.get("weave"):
         markup.add(telebot.types.InlineKeyboardButton("➡️ Далее: Выбор бусины", callback_data="custom_step_bead"))
         
+    markup.add(telebot.types.InlineKeyboardButton("🛒 Корзина", callback_data="view_cart"))
     markup.add(telebot.types.InlineKeyboardButton("❌ Отмена кастома", callback_data="catalog"))
     
     if message_id:
@@ -507,7 +524,10 @@ def custom_step_clasp(call):
     state = custom_states.get(chat_id, {})
     state["step"] = "clasp"
     cat_key = state.get("category", "bracelets")
-    next_btn_label = "➡️ Далее: Длина шнура" if cat_key == "lanyards" else "➡️ Далее: Обхват запястья"
+    name_lower = state.get("base_name", "").lower()
+    is_lanyard = (cat_key == "lanyards" or "темляк" in name_lower or "брелок" in name_lower)
+    
+    next_btn_label = "➡️ Далее: Длина шнура" if is_lanyard else "➡️ Далее: Обхват запястья"
     
     text = (
         "🎨 Конструктор изделия (Шаг 3: Застежка)\n\n"
@@ -547,9 +567,11 @@ def custom_step_measure(call):
     state["msg_id"] = call.message.message_id
     
     cat_key = state.get("category", "bracelets")
+    name_lower = state.get("base_name", "").lower()
+    is_lanyard = (cat_key == "lanyards" or "темляк" in name_lower or "брелок" in name_lower)
     val = state.get('measure_size') or '❌ Не указано'
     
-    if cat_key == "lanyards":
+    if is_lanyard:
         text = (
             "🎨 Конструктор изделия (Шаг 4: Длина шнура)\n\n"
             f"📏 Текущая длина части со шнуром: {val} см\n\n"
@@ -573,6 +595,8 @@ def render_custom_summary(chat_id, message_id=None):
     state = custom_states.get(chat_id, {})
     state["step"] = "summary"
     cat_key = state.get("category", "bracelets")
+    name_lower = state.get("base_name", "").lower()
+    is_lanyard = (cat_key == "lanyards" or "темляк" in name_lower or "брелок" in name_lower)
     
     spacers_text = "Да — красивые бусины по бокам (+100 ₽)" if state.get("spacers") else "Нет (чистый вид)"
     extra_spacers_price = 100 if state.get("spacers") else 0
@@ -583,9 +607,9 @@ def render_custom_summary(chat_id, message_id=None):
     total_price = thick_price + weave_price + clasp_price + extra_spacers_price
     state["final_price"] = total_price
     
-    measure_label = "Длина части со шнуром" if cat_key == "lanyards" else "Обхват запястья"
+    measure_label = "Длина части со шнуром" if is_lanyard else "Обхват запястья"
     measure_display = f"{state.get('measure_size')} см" if state.get('measure_size') else "⚠️ Не указано"
-    change_measure_btn = "🔄 Изменить длину шнура" if cat_key == "lanyards" else "🔄 Изменить запястье"
+    change_measure_btn = "🔄 Изменить длину шнура" if is_lanyard else "🔄 Изменить запястье"
     
     text = (
         "🔥 ВАШ СОБРАННЫЙ КАСТОМНЫЙ КОМПЛЕКТ 🔥\n"
@@ -618,6 +642,7 @@ def render_custom_summary(chat_id, message_id=None):
     else:
         markup.add(telebot.types.InlineKeyboardButton("⚠️ Укажи размер выше", callback_data="custom_step_measure"))
         
+    markup.add(telebot.types.InlineKeyboardButton("🛒 Корзина", callback_data="view_cart"))
     markup.add(telebot.types.InlineKeyboardButton("🔙 В каталог", callback_data="catalog"))
     
     target_id = message_id or state.get("msg_id")
@@ -649,7 +674,10 @@ def custom_add_to_cart(call):
         return
         
     cat_key = state.get("category", "bracelets")
-    measure_label = "Длина шнура" if cat_key == "lanyards" else "Запястье"
+    name_lower = state.get("base_name", "").lower()
+    is_lanyard = (cat_key == "lanyards" or "темляк" in name_lower or "брелок" in name_lower)
+    
+    measure_label = "Длина шнура" if is_lanyard else "Запястье"
     measure_val = f"{state.get('measure_size')} см" if state.get('measure_size') else "Не указано"
     
     custom_item = {
@@ -683,12 +711,15 @@ def add_to_cart(call):
         
     chat_id = call.message.chat.id
     cat_key = str(item.get("category", "")).strip().lower()
+    item_name_lower = str(item.get("name", "")).strip().lower()
     
-    # Для браслетов и темляков/брелоков из каталога обязательно спрашиваем замер перед добавлением в корзину
-    if cat_key in ["bracelets", "lanyards"] or "браслет" in cat_key or "темляк" in cat_key:
+    # Жесткая проверка: если это браслет, темляк или брелок (по категории или названию) — обязательно запрашиваем замер
+    is_bracelet = (cat_key == "bracelets" or "браслет" in item_name_lower)
+    is_lanyard = (cat_key == "lanyards" or "темляк" in item_name_lower or "брелок" in item_name_lower)
+    
+    if is_bracelet or is_lanyard:
         bot.answer_callback_query(call.id)
         
-        is_lanyard = (cat_key == "lanyards" or "темляк" in cat_key or "брелок" in cat_key)
         measure_type = "lanyard" if is_lanyard else "wrist"
         
         if is_lanyard:
