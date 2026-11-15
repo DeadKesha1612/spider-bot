@@ -90,7 +90,7 @@ def load_products():
     return {}
 
 def get_next_order_number():
-    """Получает следующий уникальный номер заказа из базы (строго с 1)"""
+    """Получает следующий уникальный номер заказа из базы (строго по порядку)"""
     try:
         url = f"{SUPABASE_URL}/rest/v1/orders?select=order_id&order=order_id.desc&limit=1"
         response = requests.get(url, headers=HEADERS)
@@ -100,7 +100,7 @@ def get_next_order_number():
                 return int(rows[0]["order_id"]) + 1
     except Exception as e:
         print(f"Ошибка получения номера заказа: {e}")
-    return 1  # Первый заказ будет ровно №1
+    return 1  # Если таблица пустая, начнется с 1
 
 def save_order_to_db(order_id, client_id, cart_items, total_price):
     """Сохраняет заказ в Supabase"""
@@ -968,7 +968,7 @@ def handle_text_and_flows(message):
     chat_id = message.chat.id
     text_content = message.text.strip() if message.text else ""
 
-    # Если пользователь написал команду /start или нажал кнопку запуска — сбрасываем всё и открываем меню
+    # Жесткий сброс любых зависаний при отправке старта или кнопки
     if text_content in ["/start", "🕷 Запустить Храм Паука"]:
         try:
             bot.delete_message(chat_id, message.message_id)
