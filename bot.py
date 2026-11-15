@@ -102,7 +102,7 @@ def get_next_order_number():
         print(f"Ошибка получения номера заказа: {e}")
     return 1  # Первый заказ будет ровно №1
 
-def save_order_to_db(order_id, client_id, client_username, cart_items, total_price):
+def save_order_to_db(order_id, client_id, cart_items, total_price):
     """Сохраняет заказ в Supabase"""
     try:
         url = f"{SUPABASE_URL}/rest/v1/orders"
@@ -708,7 +708,6 @@ def add_to_cart(call):
     cat_key = str(item.get("category", "")).strip().lower()
     item_name_lower = str(item.get("name", "")).strip().lower()
     
-    # Жесткая проверка: если это браслет, темляк или брелок (по категории или названию) — обязательно запрашиваем замер
     is_bracelet = (cat_key == "bracelets" or "браслет" in item_name_lower)
     is_lanyard = (cat_key == "lanyards" or "темляк" in item_name_lower or "брелок" in item_name_lower)
     
@@ -744,7 +743,6 @@ def add_to_cart(call):
         }
         return
 
-    # Остальные товары (бусины, фигурки) сразу добавляем в корзину
     if chat_id not in user_carts:
         user_carts[chat_id] = []
         
@@ -807,14 +805,13 @@ def checkout_order(call):
     
     total = sum(item.get('price', 0) for item in cart)
     
-    # Получаем юзернейм или имя клиента для удобной связи
     user = message.from_user
     if user.username:
         client_display = f"@{user.username}"
     else:
         client_display = f"<a href='tg://user?id={chat_id}'>{user.first_name or 'Клиент'}</a>"
     
-    save_order_to_db(order_id, chat_id, client_display, cart, total)
+    save_order_to_db(order_id, chat_id, cart, total)
     
     order_text = f"🚨 НОВЫЙ ЗАКАЗ №{order_id}!\n👤 Заказчик: {client_display}\n\n"
     for item in cart:
@@ -966,21 +963,33 @@ def skip_photo(call):
             sent = bot.send_message(chat_id, text, reply_markup=markup)
             admin_states[chat_id]["msg_id"] = sent.message_id
 
-@bot.message_handler(content_types=['text', 'photo', 'document'], func=lambda message: message.chat.id in admin_states or message.chat.id in custom_states or message.chat.id in size_states)
+@bot.message_handler(content_types=['text', 'photo', 'document'], func=lambda message: True)
 def handle_text_and_flows(message):
     chat_id = message.chat.id
+    text_content = message.text.strip() if message.text else ""
+
+    # Если пользователь написал команду /start или нажал кнопку запуска — сбрасываем всё и открываем меню
+    if text_content in ["/start", "🕷 Запустить Храм Паука"]:
+        try:
+            bot.delete_message(chat_id, message.message_id)
+        except Exception:
+            pass
+        user_carts[chat_id] = []
+        clear_user_states(chat_id)
+        show_main_menu(chat_id)
+        return
 
     try:
         bot.delete_message(chat_id, message.message_id)
     except Exception:
         pass
 
-    # 1. ВВОД ЗАМЕРА ДЛЯ ГОТОВОГО ТОВАРА ИЗ КАТАЛОГА (ЗАПЯСТЬЕ ИЛИ ДЛИНА ШНУРА)
+    # 1. ВВОД ЗАМЕРА ДЛЯ ГОТОВОГО ТОВАРА ИЗ КАТАЛОГА
     if chat_id in size_states:
-        if not message.text:
+        if not text_content:
             return
         state = size_states[chat_id]
-        val = message.text.strip()
+        val = text_content
         item = state["item"].copy()
         measure_type = state["measure_type"]
         target_msg_id = state.get("msg_id")
@@ -1013,9 +1022,9 @@ def handle_text_and_flows(message):
     if chat_id in custom_states:
         state = custom_states[chat_id]
         if state.get("step") == "measure":
-            if not message.text:
+            if not text_content:
                 return
-            state["measure_size"] = message.text.strip()
+            state["measure_size"] = text_content
             render_custom_summary(chat_id)
             return
 
@@ -1042,9 +1051,9 @@ def handle_text_and_flows(message):
 
         if action == "add":
             if step == "name":
-                if not message.text:
+                if not text_content:
                     return
-                state["name"] = message.text.strip()
+                state["name"] = text_content
                 state["step"] = "photo"
                 
                 markup = telebot.types.InlineKeyboardMarkup()
@@ -1070,17 +1079,17 @@ def handle_text_and_flows(message):
                 return
                 
             elif step == "material":
-                if not message.text:
+                if not text_content:
                     return
-                state["material"] = message.text.strip()
+                state["material"] = text_content
                 state["step"] = "color"
                 update_admin_prompt("🎨 Шаг 4/6: Укажи цвет (например: Олива, Черный):")
                 return
 
             elif step == "color":
-                if not message.text:
+                if not text_content:
                     return
-                color_val = message.text.strip()
+                color_val = text_content
                 base_mat = state.get("material", "")
                 state["material"] = f"{base_mat}, Цвет: {color_val}"
                 state["step"] = "price"
@@ -1088,10 +1097,10 @@ def handle_text_and_flows(message):
                 return
                 
             elif step == "price":
-                if not message.text:
+                if not text_content:
                     return
                 try:
-                    state["price"] = int(message.text.strip())
+                    state["price"] = int(text_content)
                     state["step"] = "time"
                     update_admin_prompt("⏱ Шаг 6/6: Укажи срок изготовления (например: 1-2 дня):")
                 except ValueError:
@@ -1099,7 +1108,7 @@ def handle_text_and_flows(message):
                 return
                     
             elif step == "time":
-                text_val = message.text.strip() if message.text else "1-2 дня"
+                text_val = text_content if text_content else "1-2 дня"
                 state["time"] = text_val
                 
                 item_id = f"item_{int(os.urandom(3).hex(), 16)}"
@@ -1139,18 +1148,18 @@ def handle_text_and_flows(message):
             item = products.get(item_id, {})
             
             if step == "name":
-                if not message.text:
+                if not text_content:
                     return
-                state["new_name"] = message.text.strip()
+                state["new_name"] = text_content
                 state["step"] = "price"
                 update_admin_prompt(f"💵 Шаг 2/3: Напиши новую цену (текущая: {item.get('price')}):")
                 return
                 
             elif step == "price":
-                if not message.text:
+                if not text_content:
                     return
                 try:
-                    state["new_price"] = int(message.text.strip())
+                    state["new_price"] = int(text_content)
                     state["step"] = "material"
                     update_admin_prompt(f"🧵 Шаг 3/3: Укажи новый материал/цвет (текущий: {item.get('material')}):")
                 except ValueError:
@@ -1158,12 +1167,12 @@ def handle_text_and_flows(message):
                 return
                     
             elif step == "material":
-                if not message.text:
+                if not text_content:
                     return
                 
                 item["name"] = state["new_name"]
                 item["price"] = state["new_price"]
-                item["material"] = message.text.strip()
+                item["material"] = text_content
                 
                 save_product_to_db(item_id, item)
                 
