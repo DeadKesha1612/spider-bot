@@ -278,12 +278,12 @@ def back_to_menu(call):
     bot.answer_callback_query(call.id)
     show_main_menu(call.message.chat.id, call.message.message_id)
 
-# --- МИНИ-СЕРВЕР ДЛЯ УДЕРЖАНИЯ ПОРТА НА RENDER ---
+# --- МИНИ-СЕРВЕР ДЛЯ УДЕРЖАНИЯ ПОРТА НА RENDER (БЕСПЛАТНО) ---
 class SimpleHandler(BaseHTTPRequestHandler):
     def do_GET(self):
         self.send_response(200)
         self.end_headers()
-        self.wfile.write(b"Bot is active via Long Polling!")
+        self.wfile.write(b"OK")
     def log_message(self, format, *args):
         pass
 
@@ -293,18 +293,17 @@ def run_server():
     server.serve_forever()
 
 if __name__ == '__main__':
-    # 1. Принудительно сносим вебхук, чтобы Telegram перешел в режим поллинга
+    # Сбрасываем старый вебхук перед поллингом
     try:
         requests.get(f"https://api.telegram.org/bot{TOKEN}/deleteWebhook?drop_pending_updates=true")
-        print("Вебхук сброшен, переходим на Long Polling.")
+        print("Вебхук сброшен.")
     except Exception as e:
         print(f"Ошибка сброса вебхука: {e}")
 
-    # 2. Запускаем мини-сервер для удержания порта Render в фоне
+    # Запускаем HTTP-сервер для удержания порта в фоновом потоке
     server_thread = threading.Thread(target=run_server)
     server_thread.daemon = True
     server_thread.start()
 
-    # 3. Запускаем опрос Telegram
-    print("Запуск бесконечного поллинга...")
+    print("Запуск поллинга...")
     bot.infinity_polling(skip_pending=True, timeout=60, long_polling_timeout=60)
