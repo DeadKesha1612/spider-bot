@@ -235,7 +235,7 @@ def send_item_card(chat_id, item_id, item, index, cat_items, edit_message_id=Non
     current_photo = item.get("photo")
     text = (
         f"📌 {name}\n\n"
-        f"🧵 Материал / Цвет: {material}\n"
+        f"🧵 Материал: {material}\n"
         f"💵 Цена: {price} ₽\n"
         f"⏱ Срок изготовления: {time_val}"
     )
@@ -703,7 +703,7 @@ def admin_add_start(call):
     markup = telebot.types.InlineKeyboardMarkup()
     markup.add(telebot.types.InlineKeyboardButton("❌ Отмена", callback_data="catalog"))
     
-    bot.send_message(call.message.chat.id, f"✍️ [Добавление в «{CATEGORIES.get(cat_key)}»] Шаг 1/5: Напиши название товара:", reply_markup=markup)
+    bot.send_message(call.message.chat.id, f"✍️ [Добавление в «{CATEGORIES.get(cat_key)}»] Шаг 1/6: Напиши название товара:", reply_markup=markup)
 
 @bot.callback_query_handler(func=lambda call: call.data.startswith("admin_del_"))
 def admin_delete_item(call):
@@ -745,7 +745,7 @@ def skip_photo(call):
     if chat_id in admin_states and admin_states[chat_id].get("step") == "photo":
         admin_states[chat_id]["photo"] = None
         admin_states[chat_id]["step"] = "material"
-        bot.send_message(chat_id, "🎨 Шаг 3/5: Укажи цвет товара (например: Олива, Черный):")
+        bot.send_message(chat_id, "🧵 Шаг 3/6: Укажи материал (например: Паракорд 550):")
 
 @bot.message_handler(content_types=['text', 'photo'], func=lambda message: message.chat.id in admin_states)
 def handle_admin_flow(message):
@@ -766,25 +766,37 @@ def handle_admin_flow(message):
             state["step"] = "photo"
             markup = telebot.types.InlineKeyboardMarkup()
             markup.add(telebot.types.InlineKeyboardButton("Пропустить фото", callback_data="skip_photo"))
-            bot.send_message(chat_id, "🖼 Шаг 2/5: Отправь фотографию товара (или нажми кнопку):", reply_markup=markup)
+            bot.send_message(chat_id, "🖼 Шаг 2/6: Отправь фотографию товара (или нажми кнопку):", reply_markup=markup)
             return
             
         elif step == "photo":
             if message.photo:
                 state["photo"] = message.photo[-1].file_id
                 state["step"] = "material"
-                bot.send_message(chat_id, "🎨 Шаг 3/5: Укажи цвет товара (например: Олива, Черный):")
+                bot.send_message(chat_id, "🧵 Шаг 3/6: Укажи материал (например: Паракорд 550):")
             else:
                 bot.send_message(chat_id, "🖼 Пожалуйста, отправь фото товара или нажми кнопку «Пропустить фото»:")
             return
             
         elif step == "material":
             if not message.text:
-                bot.send_message(chat_id, "❌ Введи цвет текстом:")
+                bot.send_message(chat_id, "❌ Введи материал текстом:")
                 return
             state["material"] = message.text.strip()
+            state["step"] = "color"
+            bot.send_message(chat_id, "🎨 Шаг 4/6: Укажи цвет (например: Олива, Черный):")
+            return
+
+        elif step == "color":
+            if not message.text:
+                bot.send_message(chat_id, "❌ Введи цвет текстом:")
+                return
+            color_val = message.text.strip()
+            # Дописываем цвет к материалу в красивом формате
+            current_mat = state.get("material", "")
+            state["material"] = f"{current_mat}, Цвет: {color_val}"
             state["step"] = "price"
-            bot.send_message(chat_id, "💵 Шаг 4/5: Напиши цену товара цифрами (например: 600):")
+            bot.send_message(chat_id, "💵 Шаг 5/6: Напиши цену товара цифрами (например: 600):")
             return
             
         elif step == "price":
@@ -794,7 +806,7 @@ def handle_admin_flow(message):
             try:
                 state["price"] = int(message.text.strip())
                 state["step"] = "time"
-                bot.send_message(chat_id, "⏱ Шаг 5/5: Укажи срок изготовления (например: 1-2 дня):")
+                bot.send_message(chat_id, "⏱ Шаг 6/6: Укажи срок изготовления (например: 1-2 дня):")
             except ValueError:
                 bot.send_message(chat_id, "❌ Цена должна быть числом. Повтори ввод:")
             return
@@ -843,14 +855,14 @@ def handle_admin_flow(message):
             try:
                 state["new_price"] = int(message.text.strip())
                 state["step"] = "material"
-                bot.send_message(chat_id, f"🎨 Шаг 3/3: Укажи новый цвет (текущий: {item.get('material')}):")
+                bot.send_message(chat_id, f"🧵 Шаг 3/3: Укажи новые данные материала/цвета (текущие: {item.get('material')}):")
             except ValueError:
                 bot.send_message(chat_id, "❌ Цена должна быть числом. Повтори ввод:")
             return
                 
         elif step == "material":
             if not message.text:
-                bot.send_message(chat_id, "❌ Введи цвет текстом:")
+                bot.send_message(chat_id, "❌ Введи данные текстом:")
                 return
             
             item["name"] = state["new_name"]
