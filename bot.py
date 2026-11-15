@@ -333,11 +333,17 @@ def run_server():
     server.serve_forever()
 
 if __name__ == '__main__':
+    # Принудительно сбрасываем старый вебхук при каждом запуске
+    try:
+        requests.get(f"https://api.telegram.org/bot{TOKEN}/deleteWebhook?drop_pending_updates=true")
+        print("Вебхук успешно сброшен перед запуском поллинга!")
+    except Exception as e:
+        print(f"Ошибка при сбросе вебхука: {e}")
+
     # Запускаем заглушку порта в фоновом потоке
     server_thread = threading.Thread(target=run_server)
     server_thread.daemon = True
     server_thread.start()
     
     print("Запуск поллинга...")
-    # infinity_polling сбрасывает старые апдейты и не падает при обрывах связи
     bot.infinity_polling(skip_pending=True, timeout=60, long_polling_timeout=60)
