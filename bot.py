@@ -349,24 +349,21 @@ def finalize_order(chat_id, user_obj, cart, message_id=None):
         bot.send_message(chat_id, client_text, reply_markup=get_reply_markup())
         show_main_menu(chat_id)
 
-    # Формируем кликабельную ссылку на заказчика
-    if user_obj and user_obj.username:
+    # Надежное формирование кликабельной ссылки на клиента
+    if user_obj and getattr(user_obj, 'username', None):
         customer_link = f"@{user_obj.username}"
-    elif user_obj and user_obj.first_name:
-        safe_name = user_obj.first_name.replace("[", "").replace("]", "")
-        customer_link = f"[{safe_name}](tg://user?id={chat_id})"
     else:
-        customer_link = f"[Профиль](tg://user?id={chat_id})"
+        customer_link = f"Клиент [ID {chat_id}](tg://user?id={chat_id})"
 
     # УВЕДОМЛЕНИЕ АДМИНУ С КЛИКАБЕЛЬНЫМ КЛИЕНТОМ И КНОПКОЙ ГОТОВНОСТИ
     admin_text = (
-        f"🔥 Новый заказ №{order_id}!\n"
-        f"👤 Заказчик: {customer_link} (ID: `{chat_id}`)\n\n"
-        f"🛒 Состав заказа:\n"
+        f"🔥 **Новый заказ №{order_id}!**\n"
+        f"👤 Заказчик: {customer_link}\n\n"
+        f"🛒 **Состав заказа:**\n"
     )
     for idx, item in enumerate(cart):
         admin_text += f"{idx + 1}. {item.get('name')} — {item.get('price')} ₽\n"
-    admin_text += f"\n💰 Итого: {total} ₽"
+    admin_text += f"\n💰 **Итого:** {total} ₽"
     
     admin_markup = telebot.types.InlineKeyboardMarkup()
     admin_markup.add(telebot.types.InlineKeyboardButton("✅ Заказ готов", callback_data=f"ready_{order_id}_{chat_id}"))
