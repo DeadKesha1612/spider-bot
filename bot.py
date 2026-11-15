@@ -66,7 +66,6 @@ def load_products():
             products_dict = {}
             for row in rows:
                 p_id = row.get("id")
-                # Парсим color_photos если оно пришло в виде строки
                 c_photos = row.get("color_photos")
                 if isinstance(c_photos, str):
                     try:
@@ -167,10 +166,10 @@ def show_main_menu(chat_id):
     markup.add(telebot.types.InlineKeyboardButton("🛒 Корзина", callback_data="view_cart"))
     
     text = (
-        "Приветствую! Добро пожаловать в мастерскую Храм Паука.\n\n"
+        "Приветствую! Добро пожаловать в мастерскую <b>Храм Паука</b>.\n\n"
         "Главное меню:"
     )
-    bot.send_message(chat_id, text, reply_markup=markup)
+    bot.send_message(chat_id, text, parse_mode="HTML", reply_markup=markup)
 
 # --- КАТАЛОГ И КАТЕГОРИИ ---
 
@@ -185,7 +184,7 @@ def open_catalog(call):
     markup.add(telebot.types.InlineKeyboardButton("🔙 Главное меню", callback_data="main_menu"))
     
     text = "🛍 Выбери категорию товаров:"
-    bot.send_message(call.message.chat.id, text, reply_markup=markup)
+    bot.send_message(call.message.chat.id, text, parse_mode="HTML", reply_markup=markup)
 
 @bot.callback_query_handler(func=lambda call: call.data.startswith("cat_"))
 def view_category_item(call):
@@ -209,7 +208,7 @@ def view_category_item(call):
     is_admin = (int(call.message.chat.id) == int(ADMIN_ID))
     
     if not cat_items:
-        text = f"📁 Категория: *{CATEGORIES.get(cat_key, 'Товары')}*\n\nВ этой категории пока нет товаров."
+        text = f"📁 Категория: <b>{CATEGORIES.get(cat_key, 'Товары')}</b>\n\nВ этой категории пока нет товаров."
         nav_buttons = [
             telebot.types.InlineKeyboardButton("⬅️ Назад", callback_data=f"cat_{cat_key}_0"),
             telebot.types.InlineKeyboardButton("Вперед ➡️", callback_data=f"cat_{cat_key}_0")
@@ -218,7 +217,7 @@ def view_category_item(call):
         if is_admin:
             markup.add(telebot.types.InlineKeyboardButton("➕ Добавить товар", callback_data=f"admin_add_{cat_key}"))
         markup.add(telebot.types.InlineKeyboardButton("🔙 К категориям", callback_data="catalog"))
-        bot.send_message(call.message.chat.id, text, parse_mode="Markdown", reply_markup=markup)
+        bot.send_message(call.message.chat.id, text, parse_mode="HTML", reply_markup=markup)
         return
 
     total_items = len(cat_items)
@@ -234,14 +233,13 @@ def send_item_card(chat_id, item_id, item, index, cat_items, edit_message_id=Non
     time_val = item.get('time', 'Не указан')
     color_photos = item.get('color_photos', {})
     
-    # Определяем какую фото показывать
     current_photo = item.get("photo")
     if selected_color and selected_color in color_photos:
         current_photo = color_photos[selected_color]
 
-    color_label = f" (Цвет: *{selected_color}*)" if selected_color else ""
+    color_label = f" (Цвет: <b>{selected_color}</b>)" if selected_color else ""
     text = (
-        f"📌 **{name}**{color_label}\n\n"
+        f"📌 <b>{name}</b>{color_label}\n\n"
         f"💵 Цена: {price} ₽\n"
         f"🧵 Материал: {material}\n"
         f"⏱ Срок изготовления: {time_val}"
@@ -249,7 +247,6 @@ def send_item_card(chat_id, item_id, item, index, cat_items, edit_message_id=Non
     
     markup = telebot.types.InlineKeyboardMarkup()
     
-    # Кнопки выбора цвета, если они настроены у товара
     if color_photos:
         color_buttons = []
         for col_name in color_photos.keys():
@@ -260,7 +257,6 @@ def send_item_card(chat_id, item_id, item, index, cat_items, edit_message_id=Non
             ))
         markup.row(*color_buttons)
 
-    # Кнопка добавления в корзину (сохраняем выбранный цвет, если он есть)
     cart_data = f"cart_add_{item_id}"
     if selected_color:
         cart_data = f"cart_add_{item_id}_{selected_color}"
@@ -290,18 +286,18 @@ def send_item_card(chat_id, item_id, item, index, cat_items, edit_message_id=Non
     if edit_message_id:
         try:
             if current_photo:
-                media = telebot.types.InputMediaPhoto(current_photo, caption=text, parse_mode="Markdown")
+                media = telebot.types.InputMediaPhoto(current_photo, caption=text, parse_mode="HTML")
                 bot.edit_message_media(media, chat_id, edit_message_id, reply_markup=markup)
             else:
-                bot.edit_message_text(text, chat_id, edit_message_id, parse_mode="Markdown", reply_markup=markup)
+                bot.edit_message_text(text, chat_id, edit_message_id, parse_mode="HTML", reply_markup=markup)
             return
         except Exception:
             pass
 
     if current_photo:
-        bot.send_photo(chat_id, current_photo, caption=text, parse_mode="Markdown", reply_markup=markup)
+        bot.send_photo(chat_id, current_photo, caption=text, parse_mode="HTML", reply_markup=markup)
     else:
-        bot.send_message(chat_id, text, parse_mode="Markdown", reply_markup=markup)
+        bot.send_message(chat_id, text, parse_mode="HTML", reply_markup=markup)
 
 @bot.callback_query_handler(func=lambda call: call.data.startswith("selcol_"))
 def select_product_color(call):
@@ -352,14 +348,14 @@ def custom_start(call):
 def show_custom_paracord_menu(chat_id, message_id=None):
     state = custom_states.get(chat_id, {})
     text = (
-        "🎨 **Конструктор изделия** (Шаг 1: Паракорд и Плетение)\n\n"
+        "🎨 <b>Конструктор изделия</b> (Шаг 1: Паракорд и Плетение)\n\n"
         f"📌 Основа: {state.get('base_name')}\n"
-        f"🎨 Цвет шнура: *{state.get('color') or '❌ Не выбран'}*\n"
-        f"📏 Толщина шнура: *{state.get('thickness') or '❌ Не выбрана'}*\n"
-        f"🪢 Тип плетения: *{state.get('weave') or '❌ Не выбрано'}*\n"
-        f"💀 Бусина: *{state.get('bead') or 'Не выбрана'}*\n"
-        f"🪝 Застежка: *{state.get('clasp') or 'Не выбрана'}*\n"
-        f"🔸 Разделители: *{'Да' if state.get('spacers') else 'Нет'}*\n\n"
+        f"🎨 Цвет шнура: <b>{state.get('color') or '❌ Не выбран'}</b>\n"
+        f"📏 Толщина шнура: <b>{state.get('thickness') or '❌ Не выбрана'}</b>\n"
+        f"🪢 Тип плетения: <b>{state.get('weave') or '❌ Не выбрано'}</b>\n"
+        f"💀 Бусина: <b>{state.get('bead') or 'Не выбрана'}</b>\n"
+        f"🪝 Застежка: <b>{state.get('clasp') or 'Не выбрана'}</b>\n"
+        f"🔸 Разделители: <b>{'Да' if state.get('spacers') else 'Нет'}</b>\n\n"
         "👇 Выберите параметры шнура:"
     )
     markup = telebot.types.InlineKeyboardMarkup()
@@ -374,11 +370,11 @@ def show_custom_paracord_menu(chat_id, message_id=None):
     
     if message_id:
         try:
-            bot.edit_message_text(text, chat_id, message_id, parse_mode="Markdown", reply_markup=markup)
+            bot.edit_message_text(text, chat_id, message_id, parse_mode="HTML", reply_markup=markup)
             return
         except Exception:
             pass
-    bot.send_message(chat_id, text, parse_mode="Markdown", reply_markup=markup)
+    bot.send_message(chat_id, text, parse_mode="HTML", reply_markup=markup)
 
 @bot.callback_query_handler(func=lambda call: call.data == "custom_choose_color")
 def custom_choose_color(call):
@@ -387,7 +383,7 @@ def custom_choose_color(call):
     for color in CUSTOM_OPTIONS["colors"]:
         markup.add(telebot.types.InlineKeyboardButton(color, callback_data=f"set_color_{color}"))
     markup.add(telebot.types.InlineKeyboardButton("🔙 Назад", callback_data="custom_back_paracord"))
-    bot.edit_message_text("🎨 Выберите цвет паракорда:", call.message.chat.id, call.message.message_id, reply_markup=markup)
+    bot.edit_message_text("🎨 Выберите цвет паракорда:", call.message.chat.id, call.message.message_id, parse_mode="HTML", reply_markup=markup)
 
 @bot.callback_query_handler(func=lambda call: call.data.startswith("set_color_"))
 def set_color(call):
@@ -406,7 +402,7 @@ def custom_choose_thick(call):
         btn_text = f"{thick_name} — {thick_price} ₽"
         markup.add(telebot.types.InlineKeyboardButton(btn_text, callback_data=f"set_thick_{thick_name}"))
     markup.add(telebot.types.InlineKeyboardButton("🔙 Назад", callback_data="custom_back_paracord"))
-    bot.edit_message_text("📏 Выберите толщину паракорда:", call.message.chat.id, call.message.message_id, reply_markup=markup)
+    bot.edit_message_text("📏 Выберите толщину паракорда:", call.message.chat.id, call.message.message_id, parse_mode="HTML", reply_markup=markup)
 
 @bot.callback_query_handler(func=lambda call: call.data.startswith("set_thick_"))
 def set_thick(call):
@@ -426,7 +422,7 @@ def custom_choose_weave(call):
         price_suffix = f" (+{weave_price} ₽)" if weave_price > 0 else ""
         markup.add(telebot.types.InlineKeyboardButton(f"{weave_name}{price_suffix}", callback_data=f"set_weave_{weave_name}"))
     markup.add(telebot.types.InlineKeyboardButton("🔙 Назад", callback_data="custom_back_paracord"))
-    bot.edit_message_text("🪢 Выберите тип плетения:", call.message.chat.id, call.message.message_id, reply_markup=markup)
+    bot.edit_message_text("🪢 Выберите тип плетения:", call.message.chat.id, call.message.message_id, parse_mode="HTML", reply_markup=markup)
 
 @bot.callback_query_handler(func=lambda call: call.data.startswith("set_weave_"))
 def set_weave(call):
@@ -450,10 +446,10 @@ def custom_step_bead(call):
     state = custom_states.get(chat_id, {})
     
     text = (
-        "🎨 **Конструктор изделия** (Шаг 2: Бусина)\n\n"
+        "🎨 <b>Конструктор изделия</b> (Шаг 2: Бусина)\n\n"
         f"🧵 Паракорд: {state.get('color')} / {state.get('thickness')}\n"
         f"🪢 Плетение: {state.get('weave')}\n"
-        f"💀 Центральная бусина: *{state.get('bead') or '❌ Не выбрана'}*\n\n"
+        f"💀 Центральная бусина: <b>{state.get('bead') or '❌ Не выбрана'}</b>\n\n"
         "👇 Выберите центральную бусину:"
     )
     markup = telebot.types.InlineKeyboardMarkup()
@@ -464,7 +460,7 @@ def custom_step_bead(call):
         telebot.types.InlineKeyboardButton("⬅️ Назад к паракорду", callback_data="custom_back_to_paracord"),
         telebot.types.InlineKeyboardButton("➡️ Далее: Застежка", callback_data="custom_step_clasp")
     )
-    bot.edit_message_text(text, chat_id, call.message.message_id, parse_mode="Markdown", reply_markup=markup)
+    bot.edit_message_text(text, chat_id, call.message.message_id, parse_mode="HTML", reply_markup=markup)
 
 @bot.callback_query_handler(func=lambda call: call.data.startswith("set_bead_"))
 def set_bead(call):
@@ -487,11 +483,11 @@ def custom_step_clasp(call):
     state = custom_states.get(chat_id, {})
     
     text = (
-        "🎨 **Конструктор изделия** (Шаг 3: Застежка)\n\n"
+        "🎨 <b>Конструктор изделия</b> (Шаг 3: Застежка)\n\n"
         f"🧵 Паракорд: {state.get('color')} / {state.get('thickness')}\n"
         f"🪢 Плетение: {state.get('weave')}\n"
         f"💀 Бусина: {state.get('bead')}\n"
-        f"🪝 Застежка: *{state.get('clasp') or '❌ Не выбрана'}*\n\n"
+        f"🪝 Застежка: <b>{state.get('clasp') or '❌ Не выбрана'}</b>\n\n"
         "👇 Выберите застежку:"
     )
     markup = telebot.types.InlineKeyboardMarkup()
@@ -503,7 +499,7 @@ def custom_step_clasp(call):
         telebot.types.InlineKeyboardButton("⬅️ Назад к бусине", callback_data="custom_step_bead"),
         telebot.types.InlineKeyboardButton("➡️ Далее: Итог", callback_data="custom_step_summary")
     )
-    bot.edit_message_text(text, chat_id, call.message.message_id, parse_mode="Markdown", reply_markup=markup)
+    bot.edit_message_text(text, chat_id, call.message.message_id, parse_mode="HTML", reply_markup=markup)
 
 @bot.callback_query_handler(func=lambda call: call.data.startswith("set_clasp_"))
 def set_clasp(call):
@@ -534,19 +530,19 @@ def custom_step_summary(call):
     state["final_price"] = total_price
     
     text = (
-        "🔥 **ВАШ СОБРАННЫЙ КАСТОМНЫЙ КОМПЛЕКТ** 🔥\n"
+        "🔥 <b>ВАШ СОБРАННЫЙ КАСТОМНЫЙ КОМПЛЕКТ</b> 🔥\n"
         "Внимательно проверьте каждую деталь — именно так будет выглядеть ваше готовое изделие:\n\n"
-        f"🏷 **Основа каталога:** {state.get('base_name')}\n"
+        f"🏷 <b>Основа каталога:</b> {state.get('base_name')}\n"
         f"━━━━━━━━━━━━━━━━━━━\n"
-        f"🎨 **Цвет паракорда:** {state.get('color') or 'Не указан'}\n"
-        f"📏 **Толщина шнура:** {state.get('thickness') or 'Не указана'} — *{thick_price} ₽*\n"
-        f"🪢 **Тип плетения:** {state.get('weave') or 'Не указано'}" + (f" — *+{weave_price} ₽*" if weave_price > 0 else " — *входит в базу*") + "\n"
-        f"💀 **Центральная бусина:** {state.get('bead') or 'Без бусины'}\n"
-        f"🪝 **Тип застежки:** {state.get('clasp') or 'Не указана'} — *+{clasp_price} ₽*\n"
-        f"🔸 **Бусины-разделители:** {spacers_text}\n"
+        f"🎨 <b>Цвет паракорда:</b> {state.get('color') or 'Не указан'}\n"
+        f"📏 <b>Толщина шнура:</b> {state.get('thickness') or 'Не указана'} — <i>{thick_price} ₽</i>\n"
+        f"🪢 <b>Тип плетения:</b> {state.get('weave') or 'Не указано'}" + (f" — <i>+{weave_price} ₽</i>" if weave_price > 0 else " — <i>входит в базу</i>") + "\n"
+        f"💀 <b>Центральная бусина:</b> {state.get('bead') or 'Без бусины'}\n"
+        f"🪝 <b>Тип застежки:</b> {state.get('clasp') or 'Не указана'} — <i>+{clasp_price} ₽</i>\n"
+        f"🔸 <b>Бусины-разделители:</b> {spacers_text}\n"
         f"━━━━━━━━━━━━━━━━━━━\n"
-        f"💰 **ИТОГОВАЯ СТОИМОСТЬ:** *{total_price} ₽*\n\n"
-        "💡 *Всё верно? Нажимайте «Добавить в корзину» или измените любую деталь кнопками ниже:*"
+        f"💰 <b>ИТОГОВАЯ СТОИМОСТЬ:</b> <b>{total_price} ₽</b>\n\n"
+        "💡 <i>Всё верно? Нажимайте «Добавить в корзину» или измените любую деталь кнопками ниже:</i>"
     )
     
     markup = telebot.types.InlineKeyboardMarkup()
@@ -560,7 +556,7 @@ def custom_step_summary(call):
     markup.add(telebot.types.InlineKeyboardButton("🛒 Добавить кастом в корзину", callback_data="custom_add_to_cart"))
     markup.add(telebot.types.InlineKeyboardButton("🔙 В каталог", callback_data="catalog"))
     
-    bot.edit_message_text(text, chat_id, call.message.message_id, parse_mode="Markdown", reply_markup=markup)
+    bot.edit_message_text(text, chat_id, call.message.message_id, parse_mode="HTML", reply_markup=markup)
 
 @bot.callback_query_handler(func=lambda call: call.data == "custom_add_to_cart")
 def custom_add_to_cart(call):
@@ -631,16 +627,16 @@ def view_cart(call):
             price = item.get('price', 0)
             text += f"{idx + 1}. {name} — {price} ₽\n"
             if item.get('material'):
-                text += f"   └ _{item.get('material')}_\n"
+                text += f"   └ <i>{item.get('material')}</i>\n"
             total += price
-        text += f"\n💰 Итого: {total} ₽"
+        text += f"\n💰 <b>Итого: {total} ₽</b>"
         
         markup.add(telebot.types.InlineKeyboardButton("🚀 Оформить заказ", callback_data="checkout"))
         markup.add(telebot.types.InlineKeyboardButton("🗑 Очистить корзину", callback_data="clear_cart"))
         markup.add(telebot.types.InlineKeyboardButton("🛍 Продолжить покупки", callback_data="catalog"))
         
     markup.add(telebot.types.InlineKeyboardButton("🔙 Главное меню", callback_data="main_menu"))
-    bot.send_message(chat_id, text, reply_markup=markup)
+    bot.send_message(chat_id, text, parse_mode="HTML", reply_markup=markup)
 
 @bot.callback_query_handler(func=lambda call: call.data == "clear_cart")
 def clear_cart(call):
@@ -661,16 +657,16 @@ def checkout_order(call):
     
     active_orders[order_id] = chat_id
     
-    order_text = f"🚨 **НОВЫЙ ЗАКАЗ №{order_id}!**\n(ID клиента: `{chat_id}`)\n\n"
+    order_text = f"🚨 <b>НОВЫЙ ЗАКАЗ №{order_id}!</b>\n(ID клиента: <code>{chat_id}</code>)\n\n"
     total = 0
     for item in cart:
         name = item.get('name', 'Товар')
         price = item.get('price', 0)
         order_text += f"• {name} — {price} ₽\n"
         if item.get('material'):
-            order_text += f"   └ _{item.get('material')}_\n"
+            order_text += f"   └ <i>{item.get('material')}</i>\n"
         total += price
-    order_text += f"\n💰 **Сумма:** {total} ₽"
+    order_text += f"\n💰 <b>Сумма:</b> {total} ₽"
     
     admin_markup = telebot.types.InlineKeyboardMarkup()
     admin_markup.add(telebot.types.InlineKeyboardButton(
@@ -678,10 +674,10 @@ def checkout_order(call):
         callback_data=f"order_ready_{order_id}"
     ))
     
-    bot.send_message(chat_id, f"✅ **Заказ №{order_id} успешно оформлен!** Спасибо, что выбрали «Храм Паука»! Мастер уже принял его в работу.", parse_mode="Markdown")
+    bot.send_message(chat_id, f"✅ <b>Заказ №{order_id} успешно оформлен!</b> Спасибо, что выбрали «Храм Паука»! Мастер уже принял его в работу.", parse_mode="HTML")
     
     try:
-        bot.send_message(ADMIN_ID, order_text, parse_mode="Markdown", reply_markup=admin_markup)
+        bot.send_message(ADMIN_ID, order_text, parse_mode="HTML", reply_markup=admin_markup)
     except Exception as e:
         print(f"Не удалось отправить заказ админу: {e}")
     
@@ -713,7 +709,7 @@ def mark_order_ready(call):
             text_lines = call.message.text.split("\n")
             for line in text_lines:
                 if "ID клиента:" in line:
-                    client_chat_id = int(line.replace("ID клиента:", "").replace("`", "").strip())
+                    client_chat_id = int(line.replace("ID клиента:", "").replace("<code>", "").replace("</code>", "").strip())
         except Exception:
             pass
 
@@ -721,8 +717,8 @@ def mark_order_ready(call):
         try:
             bot.send_message(
                 client_chat_id, 
-                f"🔥 **Твой заказ №{order_id} готов!**\n\nИзделие успешно создано мастерской «Храм Паука». Свяжись с администратором для уточнения деталей доставки или самовывоза.", 
-                parse_mode="Markdown"
+                f"🔥 <b>Твой заказ №{order_id} готов!</b>\n\nИзделие успешно создано мастерской «Храм Паука». Свяжись с администратором для уточнения деталей доставки или самовывоза.", 
+                parse_mode="HTML"
             )
             bot.answer_callback_query(call.id, f"✅ Уведомление по заказу №{order_id} отправлено клиенту!")
         except Exception as e:
@@ -732,8 +728,8 @@ def mark_order_ready(call):
         bot.answer_callback_query(call.id, f"✅ Заказ №{order_id} отмечен как готовый (ID клиента не найден).")
     
     try:
-        new_text = call.message.text + "\n\n🟢 **СТАТУС: ГОТОВ ✅**"
-        bot.edit_message_text(new_text, call.message.chat.id, call.message.message_id, parse_mode="Markdown")
+        new_text = call.message.text + "\n\n🟢 <b>СТАТУС: ГОТОВ ✅</b>"
+        bot.edit_message_text(new_text, call.message.chat.id, call.message.message_id, parse_mode="HTML")
     except Exception:
         pass
 
