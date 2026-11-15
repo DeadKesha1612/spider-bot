@@ -102,7 +102,7 @@ def get_next_order_number():
         print(f"Ошибка получения номера заказа: {e}")
     return 1  # Первый заказ будет ровно №1
 
-def save_order_to_db(order_id, client_id, cart_items, total_price):
+def save_order_to_db(order_id, client_id, client_username, cart_items, total_price):
     """Сохраняет заказ в Supabase"""
     try:
         url = f"{SUPABASE_URL}/rest/v1/orders"
@@ -209,11 +209,6 @@ def show_main_menu(chat_id, message_id=None):
             return
         except Exception:
             pass
-    bot.send_message(chat_id, text, reply_markup=markup, reply_markup_keyboard=reply_kb)
-
-# Переопределим отправку с клавиатурой внизу
-def send_menu_with_keyboard(chat_id, text, markup):
-    reply_kb = get_reply_markup()
     bot.send_message(chat_id, text, reply_markup=markup, reply_markup_keyboard=reply_kb)
 
 # --- КАТАЛОГ И КАТЕГОРИИ ---
@@ -801,7 +796,8 @@ def clear_cart(call):
 @bot.callback_query_handler(func=lambda call: call.data == "checkout")
 def checkout_order(call):
     bot.answer_callback_query(call.id)
-    chat_id = call.message.chat.id
+    message = call.message
+    chat_id = message.chat.id
     cart = user_carts.get(chat_id, [])
     if not cart:
         return
@@ -810,9 +806,17 @@ def checkout_order(call):
     active_orders[order_id] = chat_id
     
     total = sum(item.get('price', 0) for item in cart)
-    save_order_to_db(order_id, chat_id, cart, total)
     
-    order_text = f"🚨 НОВЫЙ ЗАКАЗ №{order_id}!\n(ID клиента: {chat_id})\n\n"
+    # Получаем юзернейм или имя клиента для удобной связи
+    user = message.from_user
+    if user.username:
+        client_display = f"@{user.username}"
+    else:
+        client_display = f"<a href='tg://user?id={chat_id}'>{user.first_name or 'Клиент'}</a>"
+    
+    save_order_to_db(order_id, chat_id, client_display, cart, total)
+    
+    order_text = f"🚨 НОВЫЙ ЗАКАЗ №{order_id}!\n👤 Заказчик: {client_display}\n\n"
     for item in cart:
         name = item.get('name', 'Товар')
         price = item.get('price', 0)
@@ -830,12 +834,12 @@ def checkout_order(call):
     bot.send_message(chat_id, f"✅ Заказ №{order_id} успешно оформлен! Спасибо, что выбрали «Храм Паука»! Мастер уже принял его в работу.")
     
     try:
-        bot.send_message(ADMIN_ID, order_text, reply_markup=admin_markup)
+        bot.send_message(ADMIN_ID, order_text, parse_mode="HTML", reply_markup=admin_markup)
     except Exception as e:
         print(f"Не удалось отправить заказ админу: {e}")
     
     user_carts[chat_id] = []
-    show_main_menu(chat_id, call.message.message_id)
+    show_main_menu(chat_id, message.message_id)
 
 @bot.callback_query_handler(func=lambda call: call.data == "main_menu")
 def back_to_menu(call):
