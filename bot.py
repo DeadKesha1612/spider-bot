@@ -20,10 +20,7 @@ HEADERS = {
 }
 
 user_carts = {}
-admin_states = {}
-custom_states = {}
-size_states = {}
-active_orders = {}
+checkout_states = {} # Состояния для пошагового ввода размеров при оформлении
 
 CATEGORIES = {
     "bracelets": "Браслеты",
@@ -80,9 +77,8 @@ def save_order_to_db(order_id, client_id, cart_items, total_price):
         print(f"Ошибка сохранения заказа в БД: {e}")
 
 def clear_user_states(chat_id):
-    for state_dict in (admin_states, custom_states, size_states):
-        if chat_id in state_dict:
-            del state_dict[chat_id]
+    if chat_id in checkout_states:
+        del checkout_states[chat_id]
 
 def get_reply_markup():
     markup = telebot.types.ReplyKeyboardMarkup(resize_keyboard=True, is_persistent=True)
@@ -176,7 +172,6 @@ def view_category_item(call):
     material = item.get('material', 'Не указан')
     time_val = item.get('time', 'Не указан')
     current_photo = item.get("photo")
-    category = str(item.get("category", "")).lower()
     
     text = (
         f"📌 {name}\n\n"
@@ -186,12 +181,7 @@ def view_category_item(call):
     )
     
     markup = telebot.types.InlineKeyboardMarkup()
-    
-    # Если это браслет, запрашиваем размер запястья
-    if "браслет" in category or "bracelet" in category:
-        markup.add(telebot.types.InlineKeyboardButton("📏 Указать размер запястья", callback_data=f"size_req_{item_id}"))
-    else:
-        markup.add(telebot.types.InlineKeyboardButton("🛒 Добавить в корзину", callback_data=f"cart_add_{item_id}"))
+    markup.add(telebot.types.InlineKeyboardButton("🛒 Добавить в корзину", callback_data=f"cart_add_{item_id}"))
     
     nav_buttons = [
         telebot.types.InlineKeyboardButton("⬅️ Назад", callback_data=f"cat_{cat_key}_{index - 1}"),
@@ -216,45 +206,6 @@ def view_category_item(call):
             bot.send_photo(call.message.chat.id, current_photo, caption=text, reply_markup=markup)
         else:
             bot.send_message(call.message.chat.id, text, reply_markup=markup)
-
-@bot.callback_query_handler(func=lambda call: call.data.startswith("size_req_"))
-def request_wrist_size(call):
-    bot.answer_callback_query(call.id)
-    item_id = call.data.replace("size_req_", "")
-    size_states[call.message.chat.id] = item_id
-    
-    text = "📏 Введи размер твоего запястья в сантиметрах (например, 18 см):"
-    markup = telebot.types.InlineKeyboardMarkup()
-    markup.add(telebot.types.InlineKeyboardButton("❌ Отмена", callback_data="catalog"))
-    
-    try:
-        bot.edit_message_text(text, call.message.chat.id, call.message.message_id, reply_markup=markup)
-    except Exception:
-        bot.send_message(call.message.chat.id, text, reply_markup=markup)
-
-@bot.message_handler(func=lambda msg: msg.chat.id in size_states)
-def save_wrist_size(message):
-    chat_id = message.chat.id
-    item_id = size_states.pop(chat_id, None)
-    size_text = message.text.strip()
-    
-    products = load_products()
-    item = products.get(item_id)
-    
-    if item:
-        # Создаем копию товара с учетом указанного размера
-        item_copy = item.copy()
-        item_copy['name'] = f"{item.get('name')} (Запястье: {size_text})"
-        
-        if chat_id not in user_carts:
-            user_carts[chat_id] = []
-        user_carts[chat_id].append(item_copy)
-        
-        bot.send_message(chat_id, f"✅ Браслет с размером запястья *{size_text}* добавлен в корзину!", parse_mode="Markdown")
-    else:
-        bot.send_message(chat_id, "❌ Ошибка: товар не найден.")
-        
-    show_main_menu(chat_id)
 
 @bot.callback_query_handler(func=lambda call: call.data.startswith("cart_add_"))
 def add_to_cart(call):
@@ -305,21 +256,114 @@ def clear_cart(call):
 @bot.callback_query_handler(func=lambda call: call.data == "checkout")
 def checkout_order(call):
     bot.answer_callback_query(call.id)
-    message = call.message
-    chat_id = message.chat.id
+    chat_id = call.message.chat.id
     cart = user_carts.get(chat_id, [])
     if not cart:
         return
+    
+    # Ищем, есть ли в корзине браслеты, которым нужен размер
+    bracelet_indices = []
+    for idx, item in enumerate(cart):
+        cat = str(item.get("category", "")).lower()
+        name = str(item.get("name", "")).lower()
+        if "браслет" in cat or "bracelet" in cat or "браслет" in name:
+            bracelet_indices.append(idx)
+            
+    if bracelet_indices:
+        # Запускаем мастер ввода размеров по очереди для каждого браслета
+        checkout_states[chat_id] = {
+            "cart": cart,
+            "indices": bracelet_indices,
+            "current_idx": 0,
+            "message_id": call.message.message_id
+        }
+        ask_next_wrist_size(chat_id)
+    else:
+        # Браслетов нет — сразу оформляем
+        finalize_order(chat_id, cart, call.message.message_id)
+
+def ask_next_wrist_size(chat_id):
+    state = checkout_states.get(chat_id)
+    if not state:
+        return
+    
+    current_item_index = state["indices"][state["current_idx"]]
+    item_name = state["cart"][current_item_index].get("name", "Браслет")
+    
+    text = f"📏 Введите размер запястья для товара:\n*{item_name}* (например, 18 см):"
+    markup = telebot.types.InlineKeyboardMarkup()
+    markup.add(telebot.types.InlineKeyboardButton("❌ Отмена", callback_data="view_cart"))
+    
+    try:
+        bot.send_message(chat_id, text, parse_mode="Markdown", reply_markup=markup)
+    except Exception:
+        pass
+
+@bot.message_handler(func=lambda msg: msg.chat.id in checkout_states)
+def process_wrist_size_input(message):
+    chat_id = message.chat.id
+    size_text = message.text.strip()
+    
+    if size_text == "🕷 Запустить Храм Паука" or size_text.startswith("/"):
+        clear_user_states(chat_id)
+        return
+
+    state = checkout_states[chat_id]
+    current_item_index = state["indices"][state["current_idx"]]
+    
+    # Дописываем размер к названию товара в корзине
+    state["cart"][current_item_index]["name"] += f" (Запястье: {size_text})"
+    
+    state["current_idx"] += 1
+    
+    # Если остались еще браслеты — спрашиваем следующий, иначе финализируем заказ
+    if state["current_idx"] < len(state["indices"]):
+        ask_next_wrist_size(chat_id)
+    else:
+        cart = state["cart"]
+        message_id = state.get("message_id")
+        clear_user_states(chat_id)
+        finalize_order(chat_id, cart, message_id)
+
+def finalize_order(chat_id, cart, message_id=None):
     order_id = get_next_order_number()
     total = sum(item.get('price', 0) for item in cart)
+    
+    # Сохраняем в Supabase
     save_order_to_db(order_id, chat_id, cart, total)
-    bot.send_message(chat_id, f"✅ Заказ №{order_id} успешно оформлен! Мастер принял его в работу.")
+    
+    # Сообщение клиенту
+    client_text = f"✅ Заказ №{order_id} успешно оформлен! Мастер принял его в работу."
+    try:
+        if message_id:
+            bot.edit_message_text(client_text, chat_id, message_id)
+            bot.send_message(chat_id, "Главное меню:", reply_markup=get_reply_markup())
+            show_main_menu(chat_id)
+        else:
+            bot.send_message(chat_id, client_text, reply_markup=get_reply_markup())
+            show_main_menu(chat_id)
+    except Exception:
+        bot.send_message(chat_id, client_text, reply_markup=get_reply_markup())
+        show_main_menu(chat_id)
+
+    # УВЕДОМЛЕНИЕ АДМИНУ (ТЕБЕ)
+    admin_text = f"🔥 Новый заказ №{order_id}!\n👤 Клиент ID: `{chat_id}`\n\n🛒 Состав заказа:\n"
+    for idx, item in enumerate(cart):
+        admin_text += f"{idx + 1}. {item.get('name')} — {item.get('price')} ₽\n"
+    admin_text += f"\n💰 Итого: {total} ₽"
+    
+    try:
+        bot.send_message(ADMIN_ID, admin_text, parse_mode="Markdown")
+    except Exception as e:
+        print(f"Ошибка отправки уведомления админу: {e}")
+
+    # Очищаем корзину пользователя
     user_carts[chat_id] = []
-    show_main_menu(chat_id, message.message_id)
 
 @bot.callback_query_handler(func=lambda call: call.data == "main_menu")
 def back_to_menu(call):
     bot.answer_callback_query(call.id)
+    clear_user_states(call.message.chat.id)
     show_main_menu(call.message.chat.id, call.message.message_id)
 
 # --- FLASK СЕРВЕР ДЛЯ ВЕБХУКОВ ---
