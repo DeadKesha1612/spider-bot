@@ -9,7 +9,7 @@ TOKEN = "9263601739:AAFhakRpWA0uOrev0vQ7TRRk2iFLOMdn5Y8"
 bot = telebot.TeleBot(TOKEN)
 
 ADMIN_ID = 5393257255
-CHANNEL_USERNAME = "@hram_pauka"  # <-- Укажи здесь юзернейм своего канала (например, @hram_pauka)
+CHANNEL_USERNAME = "@hram_pauka"  # Укажи юзернейм своего канала
 
 SUPABASE_URL = "https://cztrrtvajptalfjdfpmy.supabase.co"
 SUPABASE_KEY = "sb_publishable_2HnmPT650giFwrbjE8G4IQ_2GYLbPQ-"
@@ -28,7 +28,9 @@ admin_states = {}
 CATEGORIES = {
     "bracelets": "Браслеты",
     "lanyards": "Брелоки / Темляки",
-    "beads": "Бусины, фигурки"
+    "beads": "Бусины, фигурки",
+    "runes_set": "Руны: Полный набор",
+    "runes_single": "Руны: Отдельные руны"
 }
 
 def load_products():
@@ -56,7 +58,6 @@ def load_products():
 def save_user_to_db(chat_id):
     try:
         url = f"{SUPABASE_URL}/rest/v1/users"
-        # Проверяем, есть ли уже пользователь
         check_res = requests.get(f"{url}?chat_id=eq.{chat_id}", headers=HEADERS)
         if check_res.status_code == 200 and not check_res.json():
             requests.post(url, headers=HEADERS, json={"chat_id": chat_id})
@@ -223,7 +224,7 @@ def admin_step_photo(message):
         return
 
     admin_states[chat_id]["step"] = "material"
-    bot.send_message(chat_id, "🧵 3/5. Введи **материал** (например: Паракорд 550):", parse_mode="Markdown")
+    bot.send_message(chat_id, "🧵 3/5. Введи **материал** (например: Эпоксидная смола):", parse_mode="Markdown")
 
 @bot.message_handler(func=lambda msg: msg.chat.id in admin_states and admin_states[msg.chat.id].get("step") == "material" and msg.from_user.id == ADMIN_ID)
 def admin_step_material(message):
@@ -234,7 +235,7 @@ def admin_step_material(message):
         return
     admin_states[chat_id]["material"] = text
     admin_states[chat_id]["step"] = "color"
-    bot.send_message(chat_id, "🎨 4/5. Введи **цвет** (например: Песочный / Черный):", parse_mode="Markdown")
+    bot.send_message(chat_id, "🎨 4/5. Введи **цвет** (например: Каменный серый):", parse_mode="Markdown")
 
 @bot.message_handler(func=lambda msg: msg.chat.id in admin_states and admin_states[msg.chat.id].get("step") == "color" and msg.from_user.id == ADMIN_ID)
 def admin_step_color(message):
@@ -245,7 +246,7 @@ def admin_step_color(message):
         return
     admin_states[chat_id]["color"] = text
     admin_states[chat_id]["step"] = "price"
-    bot.send_message(chat_id, "💵 5/5. Введи **цену** товара (только цифры, например: 600):", parse_mode="Markdown")
+    bot.send_message(chat_id, "💵 5/5. Введи **цену** товара (только цифры, например: 2800):", parse_mode="Markdown")
 
 @bot.message_handler(func=lambda msg: msg.chat.id in admin_states and admin_states[msg.chat.id].get("step") == "price" and msg.from_user.id == ADMIN_ID)
 def admin_step_price(message):
@@ -257,7 +258,7 @@ def admin_step_price(message):
     try:
         admin_states[chat_id]["price"] = int(text)
         admin_states[chat_id]["step"] = "time"
-        bot.send_message(chat_id, "⏱ Введи **срок изготовления** (например: 1-2 дня):", parse_mode="Markdown")
+        bot.send_message(chat_id, "⏱ Введи **срок изготовления** (например: 2-3 дня):", parse_mode="Markdown")
     except ValueError:
         bot.send_message(chat_id, "❌ Цена должна быть числом. Введи цену повторно:")
 
@@ -287,7 +288,6 @@ def admin_step_time(message):
         }
         res = requests.post(url, headers=HEADERS, json=payload)
         if res.status_code in [200, 201]:
-            # Спрашиваем про рассылку
             markup = telebot.types.InlineKeyboardMarkup()
             markup.add(
                 telebot.types.InlineKeyboardButton("🚀 Да, запустить дроп", callback_data=f"broadcast_yes_{generated_id}"),
@@ -328,7 +328,6 @@ def handle_broadcast_decision(call):
         show_main_menu(chat_id, user_id=ADMIN_ID)
         return
         
-    # Формируем текст поста
     post_text = (
         f"🔥 **НОВИНКА В МАСТЕРСКОЙ!** 🔥\n\n"
         f"📌 **{item.get('name')}**\n\n"
@@ -342,7 +341,6 @@ def handle_broadcast_decision(call):
     channel_markup = telebot.types.InlineKeyboardMarkup()
     channel_markup.add(telebot.types.InlineKeyboardButton("🛒 Открыть каталог в боте", url=f"https://t.me/{bot_username}"))
     
-    # 1. Публикуем в канал
     try:
         if item.get("photo"):
             bot.send_photo(CHANNEL_USERNAME, item.get("photo"), caption=post_text, parse_mode="Markdown", reply_markup=channel_markup)
@@ -351,7 +349,6 @@ def handle_broadcast_decision(call):
     except Exception as e:
         print(f"Ошибка публикации в канал: {e}")
         
-    # 2. Делаем рассылку по ЛС клиентов
     all_users = get_all_users()
     success_count = 0
     
@@ -459,9 +456,11 @@ def open_catalog(call):
     clear_user_states(call.message.chat.id)
     markup = telebot.types.InlineKeyboardMarkup()
     
-    for cat_key, cat_name in CATEGORIES.items():
-        markup.add(telebot.types.InlineKeyboardButton(cat_name, callback_data=f"cat_{cat_key}_0"))
-        
+    markup.add(telebot.types.InlineKeyboardButton("Браслеты", callback_data="cat_bracelets_0"))
+    markup.add(telebot.types.InlineKeyboardButton("Брелоки / Темляки", callback_data="cat_lanyards_0"))
+    markup.add(telebot.types.InlineKeyboardButton("Бусины, фигурки", callback_data="cat_beads_0"))
+    markup.add(telebot.types.InlineKeyboardButton("🔮 Рунные наборы", callback_data="runes_menu"))
+    
     markup.add(telebot.types.InlineKeyboardButton("🛒 Корзина", callback_data="view_cart"))
     markup.add(telebot.types.InlineKeyboardButton("🔙 Главное меню", callback_data="main_menu"))
     
@@ -471,12 +470,31 @@ def open_catalog(call):
     except Exception:
         bot.send_message(call.message.chat.id, text, reply_markup=markup)
 
+@bot.callback_query_handler(func=lambda call: call.data == "runes_menu")
+def open_runes_menu(call):
+    bot.answer_callback_query(call.id)
+    markup = telebot.types.InlineKeyboardMarkup()
+    markup.add(telebot.types.InlineKeyboardButton("📦 Полный набор", callback_data="cat_runes_set_0"))
+    markup.add(telebot.types.InlineKeyboardButton("🪄 Отдельные руны", callback_data="cat_runes_single_0"))
+    markup.add(telebot.types.InlineKeyboardButton("🔙 К категориям", callback_data="catalog"))
+    
+    text = "🔮 Выберите раздел рун:"
+    try:
+        bot.edit_message_text(text, call.message.chat.id, call.message.message_id, reply_markup=markup)
+    except Exception:
+        bot.send_message(call.message.chat.id, text, reply_markup=markup)
+
 @bot.callback_query_handler(func=lambda call: call.data.startswith("cat_"))
 def view_category_item(call):
     bot.answer_callback_query(call.id)
     parts = call.data.split("_")
-    cat_key = parts[1]
-    index = int(parts[2])
+    # Обработка путей категорий с подчеркиванием (например, cat_runes_set_0 или cat_bracelets_0)
+    if parts[1] == "runes" and parts[2] in ["set", "single"]:
+        cat_key = f"{parts[1]}_{parts[2]}"
+        index = int(parts[3])
+    else:
+        cat_key = parts[1]
+        index = int(parts[2])
     
     products = load_products()
     cat_items = []
@@ -486,7 +504,9 @@ def view_category_item(call):
             target_cat = str(cat_key).strip().lower()
             if item_cat == target_cat or \
                (target_cat == "bracelets" and "браслет" in item_cat) or \
-               (target_cat == "beads" and ("бусин" in item_cat or "фигурк" in item_cat)):
+               (target_cat == "beads" and ("бусин" in item_cat or "фигурк" in item_cat)) or \
+               (target_cat == "runes_set" and "runes_set" in item_cat) or \
+               (target_cat == "runes_single" and "runes_single" in item_cat):
                 cat_items.append((item_id, item))
     
     markup = telebot.types.InlineKeyboardMarkup()
@@ -494,7 +514,10 @@ def view_category_item(call):
     if not cat_items:
         text = f"📁 Категория: {CATEGORIES.get(cat_key, 'Товары')}\n\nВ этой категории пока нет товаров."
         markup.add(telebot.types.InlineKeyboardButton("🛒 Корзина", callback_data="view_cart"))
-        markup.add(telebot.types.InlineKeyboardButton("🔙 К категориям", callback_data="catalog"))
+        if "runes" in cat_key:
+            markup.add(telebot.types.InlineKeyboardButton("🔙 К рунам", callback_data="runes_menu"))
+        else:
+            markup.add(telebot.types.InlineKeyboardButton("🔙 К категориям", callback_data="catalog"))
         try:
             bot.edit_message_text(text, call.message.chat.id, call.message.message_id, reply_markup=markup)
         except Exception:
@@ -533,7 +556,10 @@ def view_category_item(call):
     ]
     markup.row(*nav_buttons)
     markup.add(telebot.types.InlineKeyboardButton("🛒 Корзина", callback_data="view_cart"))
-    markup.add(telebot.types.InlineKeyboardButton("🔙 К категориям", callback_data="catalog"))
+    if "runes" in cat_key:
+        markup.add(telebot.types.InlineKeyboardButton("🔙 К рунам", callback_data="runes_menu"))
+    else:
+        markup.add(telebot.types.InlineKeyboardButton("🔙 К категориям", callback_data="catalog"))
 
     try:
         if current_photo:
