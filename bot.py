@@ -56,7 +56,7 @@ def get_next_order_number():
         response = requests.get(url, headers=HEADERS)
         if response.status_code == 200:
             rows = response.json()
-            if rows and len(rows) > 0:
+            if rows and isinstance(rows, list) and len(rows) > 0:
                 max_id = 0
                 for row in rows:
                     val = row.get("order_id")
@@ -200,6 +200,13 @@ def view_category_item(call):
     
     markup = telebot.types.InlineKeyboardMarkup()
     markup.add(telebot.types.InlineKeyboardButton("🛒 Добавить в корзину", callback_data=f"cart_add_{item_id}"))
+    
+    # АДМИНСКИЕ КНОПКИ УПРАВЛЕНИЯ ТОВАРОМ
+    if call.from_user.id == ADMIN_ID:
+        markup.add(
+            telebot.types.InlineKeyboardButton("✏️ Редактировать", callback_data=f"edit_item_{item_id}"),
+            telebot.types.InlineKeyboardButton("❌ Удалить", callback_data=f"del_item_{item_id}")
+        )
     
     nav_buttons = [
         telebot.types.InlineKeyboardButton("⬅️ Назад", callback_data=f"cat_{cat_key}_{index - 1}"),
