@@ -9,7 +9,7 @@ TOKEN = "9263601739:AAFhakRpWA0uOrev0vQ7TRRk2iFLOMdn5Y8"
 bot = telebot.TeleBot(TOKEN)
 
 ADMIN_ID = 5393257255
-CHANNEL_USERNAME = "@hram_pauka"  # Укажи юзернейм своего канала
+CHANNEL_USERNAME = "@TheSpiderTemple"  # Укажи юзернейм своего канала
 
 SUPABASE_URL = "https://cztrrtvajptalfjdfpmy.supabase.co"
 SUPABASE_KEY = "sb_publishable_2HnmPT650giFwrbjE8G4IQ_2GYLbPQ-"
@@ -48,6 +48,7 @@ def load_products():
                     "photo": row.get("photo"),
                     "price": row.get("price"),
                     "material": row.get("material"),
+                    "meaning": row.get("meaning"),
                     "time": row.get("time")
                 }
             return products_dict
@@ -192,7 +193,7 @@ def admin_choose_category(call):
     admin_states[chat_id]["category"] = cat_key
     admin_states[chat_id]["step"] = "name"
     
-    bot.edit_message_text("✍️ 1/5. Введи **название** товара:", chat_id, call.message.message_id, parse_mode="Markdown")
+    bot.edit_message_text("✍️ Введи **название** товара:", chat_id, call.message.message_id, parse_mode="Markdown")
 
 @bot.message_handler(func=lambda msg: msg.chat.id in admin_states and admin_states[msg.chat.id].get("step") == "name" and msg.from_user.id == ADMIN_ID)
 def admin_step_name(message):
@@ -202,7 +203,7 @@ def admin_step_name(message):
         return
     admin_states[chat_id]["name"] = message.text.strip()
     admin_states[chat_id]["step"] = "photo"
-    bot.send_message(chat_id, "📸 2/5. Пришли **фотографию** товара:", parse_mode="Markdown")
+    bot.send_message(chat_id, "📸 Пришли **фотографию** товара:", parse_mode="Markdown")
 
 @bot.message_handler(content_types=['photo', 'text'], func=lambda msg: msg.chat.id in admin_states and admin_states[msg.chat.id].get("step") == "photo" and msg.from_user.id == ADMIN_ID)
 def admin_step_photo(message):
@@ -224,7 +225,7 @@ def admin_step_photo(message):
         return
 
     admin_states[chat_id]["step"] = "material"
-    bot.send_message(chat_id, "🧵 3/5. Введи **материал** (например: Эпоксидная смола):", parse_mode="Markdown")
+    bot.send_message(chat_id, "🧵 Введи **материал** (например: Эпоксидная смола):", parse_mode="Markdown")
 
 @bot.message_handler(func=lambda msg: msg.chat.id in admin_states and admin_states[msg.chat.id].get("step") == "material" and msg.from_user.id == ADMIN_ID)
 def admin_step_material(message):
@@ -235,7 +236,7 @@ def admin_step_material(message):
         return
     admin_states[chat_id]["material"] = text
     admin_states[chat_id]["step"] = "color"
-    bot.send_message(chat_id, "🎨 4/5. Введи **цвет** (например: Каменный серый):", parse_mode="Markdown")
+    bot.send_message(chat_id, "🎨 Введи **цвет** (например: Каменный серый):", parse_mode="Markdown")
 
 @bot.message_handler(func=lambda msg: msg.chat.id in admin_states and admin_states[msg.chat.id].get("step") == "color" and msg.from_user.id == ADMIN_ID)
 def admin_step_color(message):
@@ -245,8 +246,25 @@ def admin_step_color(message):
         clear_user_states(chat_id)
         return
     admin_states[chat_id]["color"] = text
+    
+    # Если это отдельные руны, запрашиваем «значение», иначе сразу цену
+    if admin_states[chat_id].get("category") == "runes_single":
+        admin_states[chat_id]["step"] = "meaning"
+        bot.send_message(chat_id, "🔮 Введи **значение** руны (например: Защита, сила, прорыв):", parse_mode="Markdown")
+    else:
+        admin_states[chat_id]["step"] = "price"
+        bot.send_message(chat_id, "💵 Введи **цену** товара (только цифры, например: 2800):", parse_mode="Markdown")
+
+@bot.message_handler(func=lambda msg: msg.chat.id in admin_states and admin_states[msg.chat.id].get("step") == "meaning" and msg.from_user.id == ADMIN_ID)
+def admin_step_meaning(message):
+    chat_id = message.chat.id
+    text = message.text.strip()
+    if text.startswith("/"):
+        clear_user_states(chat_id)
+        return
+    admin_states[chat_id]["meaning"] = text
     admin_states[chat_id]["step"] = "price"
-    bot.send_message(chat_id, "💵 5/5. Введи **цену** товара (только цифры, например: 2800):", parse_mode="Markdown")
+    bot.send_message(chat_id, "💵 Введи **цену** товара (только цифры, например: 2800):", parse_mode="Markdown")
 
 @bot.message_handler(func=lambda msg: msg.chat.id in admin_states and admin_states[msg.chat.id].get("step") == "price" and msg.from_user.id == ADMIN_ID)
 def admin_step_price(message):
@@ -283,6 +301,7 @@ def admin_step_time(message):
             "name": state["name"],
             "price": state["price"],
             "material": full_material_str,
+            "meaning": state.get("meaning"),
             "time": state["time"],
             "photo": state["photo"]
         }
@@ -328,10 +347,12 @@ def handle_broadcast_decision(call):
         show_main_menu(chat_id, user_id=ADMIN_ID)
         return
         
+    meaning_line = f"🔮 Значение: {item.get('meaning')}\n" if item.get('meaning') else ""
     post_text = (
         f"🔥 **НОВИНКА В МАСТЕРСКОЙ!** 🔥\n\n"
         f"📌 **{item.get('name')}**\n\n"
         f"🧵 Материал: {item.get('material')}\n"
+        f"{meaning_line}"
         f"💵 Цена: {item.get('price')} ₽\n"
         f"⏱ Срок изготовления: {item.get('time')}\n\n"
         f"Заглядывай в бота, чтобы оформить заказ!"
@@ -393,6 +414,7 @@ def admin_edit_item_start(call):
     markup.add(telebot.types.InlineKeyboardButton("📝 Название", callback_data=f"edit_field_name_{item_id}"))
     markup.add(telebot.types.InlineKeyboardButton("💵 Цена", callback_data=f"edit_field_price_{item_id}"))
     markup.add(telebot.types.InlineKeyboardButton("🧵 Материал", callback_data=f"edit_field_material_{item_id}"))
+    markup.add(telebot.types.InlineKeyboardButton("🔮 Значение", callback_data=f"edit_field_meaning_{item_id}"))
     markup.add(telebot.types.InlineKeyboardButton("⏱ Срок", callback_data=f"edit_field_time_{item_id}"))
     markup.add(telebot.types.InlineKeyboardButton("🖼 Фото", callback_data=f"edit_field_photo_{item_id}"))
     markup.add(telebot.types.InlineKeyboardButton("🔙 Отмена", callback_data="catalog"))
@@ -488,7 +510,6 @@ def open_runes_menu(call):
 def view_category_item(call):
     bot.answer_callback_query(call.id)
     parts = call.data.split("_")
-    # Обработка путей категорий с подчеркиванием (например, cat_runes_set_0 или cat_bracelets_0)
     if parts[1] == "runes" and parts[2] in ["set", "single"]:
         cat_key = f"{parts[1]}_{parts[2]}"
         index = int(parts[3])
@@ -531,12 +552,15 @@ def view_category_item(call):
     name = item.get('name', 'Товар')
     price = item.get('price', 0)
     material = item.get('material', 'Не указан')
+    meaning = item.get('meaning')
     time_val = item.get('time', 'Не указан')
     current_photo = item.get("photo")
     
+    meaning_str = f"🔮 Значение: {meaning}\n" if meaning else ""
     text = (
         f"📌 {name}\n\n"
         f"🧵 Материал: {material}\n"
+        f"{meaning_str}"
         f"💵 Цена: {price} ₽\n"
         f"⏱ Срок изготовления: {time_val}"
     )
