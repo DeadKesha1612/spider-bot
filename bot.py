@@ -1,6 +1,7 @@
 import telebot
 import os
 import json
+import uuid
 import requests
 from flask import Flask, request
 
@@ -169,7 +170,6 @@ def admin_choose_category(call):
     
     bot.edit_message_text("✍️ 1/5. Введи **название** товара:", chat_id, call.message.message_id, parse_mode="Markdown")
 
-# Шаг 1: Название (текст)
 @bot.message_handler(func=lambda msg: msg.chat.id in admin_states and admin_states[msg.chat.id].get("step") == "name" and msg.from_user.id == ADMIN_ID)
 def admin_step_name(message):
     chat_id = message.chat.id
@@ -180,13 +180,11 @@ def admin_step_name(message):
     admin_states[chat_id]["step"] = "photo"
     bot.send_message(chat_id, "📸 2/5. Пришли **фотографию** товара:", parse_mode="Markdown")
 
-# Шаг 2: Фото (картинка или текст «нет»)
 @bot.message_handler(content_types=['photo', 'text'], func=lambda msg: msg.chat.id in admin_states and admin_states[msg.chat.id].get("step") == "photo" and msg.from_user.id == ADMIN_ID)
 def admin_step_photo(message):
     chat_id = message.chat.id
     
     if message.photo:
-        # Берем самое качественное фото из массива
         photo_id = message.photo[-1].file_id
         admin_states[chat_id]["photo"] = photo_id
     elif message.text:
@@ -204,7 +202,6 @@ def admin_step_photo(message):
     admin_states[chat_id]["step"] = "material"
     bot.send_message(chat_id, "🧵 3/5. Введи **материал** (например: Паракорд 550):", parse_mode="Markdown")
 
-# Шаги 3, 4, 5: Материал, Цвет, Цена, Срок
 @bot.message_handler(func=lambda msg: msg.chat.id in admin_states and msg.from_user.id == ADMIN_ID)
 def process_admin_product_remaining_steps(message):
     chat_id = message.chat.id
@@ -234,10 +231,12 @@ def process_admin_product_remaining_steps(message):
     elif step == "time":
         state["time"] = text
         full_material_str = f"{state['material']}, Цвет: {state['color']}"
+        generated_id = str(uuid.uuid4())
         
         try:
             url = f"{SUPABASE_URL}/rest/v1/products"
             payload = {
+                "id": generated_id,
                 "category": state["category"],
                 "name": state["name"],
                 "price": state["price"],
