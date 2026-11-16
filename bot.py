@@ -9,6 +9,7 @@ TOKEN = "9263601739:AAFhakRpWA0uOrev0vQ7TRRk2iFLOMdn5Y8"
 bot = telebot.TeleBot(TOKEN)
 
 ADMIN_ID = 5393257255
+CHANNEL_USERNAME = "@hram_pauka"  # <-- Укажи здесь юзернейм своего канала (например, @hram_pauka)
 
 SUPABASE_URL = "https://cztrrtvajptalfjdfpmy.supabase.co"
 SUPABASE_KEY = "sb_publishable_2HnmPT650giFwrbjE8G4IQ_2GYLbPQ-"
@@ -51,6 +52,26 @@ def load_products():
     except Exception as e:
         print(f"Ошибка загрузки из Supabase: {e}")
     return {}
+
+def save_user_to_db(chat_id):
+    try:
+        url = f"{SUPABASE_URL}/rest/v1/users"
+        # Проверяем, есть ли уже пользователь
+        check_res = requests.get(f"{url}?chat_id=eq.{chat_id}", headers=HEADERS)
+        if check_res.status_code == 200 and not check_res.json():
+            requests.post(url, headers=HEADERS, json={"chat_id": chat_id})
+    except Exception as e:
+        print(f"Ошибка сохранения пользователя: {e}")
+
+def get_all_users():
+    try:
+        url = f"{SUPABASE_URL}/rest/v1/users?select=chat_id"
+        response = requests.get(url, headers=HEADERS)
+        if response.status_code == 200:
+            return [row.get("chat_id") for row in response.json() if row.get("chat_id")]
+    except Exception as e:
+        print(f"Ошибка получения пользователей: {e}")
+    return []
 
 def get_next_order_number():
     try:
@@ -114,6 +135,7 @@ def send_welcome(message):
     chat_id = message.chat.id
     user_carts[chat_id] = []
     clear_user_states(chat_id)
+    save_user_to_db(chat_id)
     show_main_menu(chat_id, user_id=message.from_user.id)
 
 @bot.message_handler(func=lambda msg: msg.text == "🕷 Запустить Храм Паука")
@@ -121,6 +143,7 @@ def handle_reply_start(message):
     chat_id = message.chat.id
     user_carts[chat_id] = []
     clear_user_states(chat_id)
+    save_user_to_db(chat_id)
     show_main_menu(chat_id, user_id=message.from_user.id)
 
 def show_main_menu(chat_id, message_id=None, user_id=None):
@@ -145,7 +168,7 @@ def back_to_menu(call):
     clear_user_states(call.message.chat.id)
     show_main_menu(call.message.chat.id, call.message.message_id, user_id=call.from_user.id)
 
-# --- АДМИНКА: ДОБАВЛЕНИЕ ТОВАРА (ШАГИ) ---
+# --- АДМИНКА: ДОБАВЛЕНИЕ ТОВАРА (ПОШАГОВО) ---
 @bot.message_handler(func=lambda msg: msg.text == "➕ Добавить товар" and msg.from_user.id == ADMIN_ID)
 def start_add_product_msg(message):
     chat_id = message.chat.id
@@ -202,58 +225,148 @@ def admin_step_photo(message):
     admin_states[chat_id]["step"] = "material"
     bot.send_message(chat_id, "🧵 3/5. Введи **материал** (например: Паракорд 550):", parse_mode="Markdown")
 
-@bot.message_handler(func=lambda msg: msg.chat.id in admin_states and msg.from_user.id == ADMIN_ID)
-def process_admin_product_remaining_steps(message):
+@bot.message_handler(func=lambda msg: msg.chat.id in admin_states and admin_states[msg.chat.id].get("step") == "material" and msg.from_user.id == ADMIN_ID)
+def admin_step_material(message):
     chat_id = message.chat.id
-    state = admin_states.get(chat_id, {})
-    step = state.get("step")
     text = message.text.strip()
-    
     if text.startswith("/"):
         clear_user_states(chat_id)
         return
+    admin_states[chat_id]["material"] = text
+    admin_states[chat_id]["step"] = "color"
+    bot.send_message(chat_id, "🎨 4/5. Введи **цвет** (например: Песочный / Черный):", parse_mode="Markdown")
 
-    if step == "material":
-        state["material"] = text
-        state["step"] = "color"
-        bot.send_message(chat_id, "🎨 4/5. Введи **цвет** (например: Песочный / Черный):", parse_mode="Markdown")
-    elif step == "color":
-        state["color"] = text
-        state["step"] = "price"
-        bot.send_message(chat_id, "💵 5/5. Введи **цену** товара (только цифры, например: 600):", parse_mode="Markdown")
-    elif step == "price":
-        try:
-            state["price"] = int(text)
-            state["step"] = "time"
-            bot.send_message(chat_id, "⏱ Введи **срок изготовления** (например: 1-2 дня):", parse_mode="Markdown")
-        except ValueError:
-            bot.send_message(chat_id, "❌ Цена должна быть числом. Введи цену повторно:")
-    elif step == "time":
-        state["time"] = text
-        full_material_str = f"{state['material']}, Цвет: {state['color']}"
-        generated_id = str(uuid.uuid4())
-        
-        try:
-            url = f"{SUPABASE_URL}/rest/v1/products"
-            payload = {
-                "id": generated_id,
-                "category": state["category"],
-                "name": state["name"],
-                "price": state["price"],
-                "material": full_material_str,
-                "time": state["time"],
-                "photo": state["photo"]
-            }
-            res = requests.post(url, headers=HEADERS, json=payload)
-            if res.status_code in [200, 201]:
-                bot.send_message(chat_id, "✅ Товар успешно добавлен в базу!", reply_markup=get_reply_markup(ADMIN_ID))
-            else:
-                bot.send_message(chat_id, f"❌ Ошибка сохранения в БД: {res.text}")
-        except Exception as e:
-            bot.send_message(chat_id, f"❌ Ошибка: {e}")
-            
+@bot.message_handler(func=lambda msg: msg.chat.id in admin_states and admin_states[msg.chat.id].get("step") == "color" and msg.from_user.id == ADMIN_ID)
+def admin_step_color(message):
+    chat_id = message.chat.id
+    text = message.text.strip()
+    if text.startswith("/"):
         clear_user_states(chat_id)
+        return
+    admin_states[chat_id]["color"] = text
+    admin_states[chat_id]["step"] = "price"
+    bot.send_message(chat_id, "💵 5/5. Введи **цену** товара (только цифры, например: 600):", parse_mode="Markdown")
+
+@bot.message_handler(func=lambda msg: msg.chat.id in admin_states and admin_states[msg.chat.id].get("step") == "price" and msg.from_user.id == ADMIN_ID)
+def admin_step_price(message):
+    chat_id = message.chat.id
+    text = message.text.strip()
+    if text.startswith("/"):
+        clear_user_states(chat_id)
+        return
+    try:
+        admin_states[chat_id]["price"] = int(text)
+        admin_states[chat_id]["step"] = "time"
+        bot.send_message(chat_id, "⏱ Введи **срок изготовления** (например: 1-2 дня):", parse_mode="Markdown")
+    except ValueError:
+        bot.send_message(chat_id, "❌ Цена должна быть числом. Введи цену повторно:")
+
+@bot.message_handler(func=lambda msg: msg.chat.id in admin_states and admin_states[msg.chat.id].get("step") == "time" and msg.from_user.id == ADMIN_ID)
+def admin_step_time(message):
+    chat_id = message.chat.id
+    text = message.text.strip()
+    if text.startswith("/"):
+        clear_user_states(chat_id)
+        return
+    
+    state = admin_states[chat_id]
+    state["time"] = text
+    full_material_str = f"{state['material']}, Цвет: {state['color']}"
+    generated_id = str(uuid.uuid4())
+    
+    try:
+        url = f"{SUPABASE_URL}/rest/v1/products"
+        payload = {
+            "id": generated_id,
+            "category": state["category"],
+            "name": state["name"],
+            "price": state["price"],
+            "material": full_material_str,
+            "time": state["time"],
+            "photo": state["photo"]
+        }
+        res = requests.post(url, headers=HEADERS, json=payload)
+        if res.status_code in [200, 201]:
+            # Спрашиваем про рассылку
+            markup = telebot.types.InlineKeyboardMarkup()
+            markup.add(
+                telebot.types.InlineKeyboardButton("🚀 Да, запустить дроп", callback_data=f"broadcast_yes_{generated_id}"),
+                telebot.types.InlineKeyboardButton("🙅‍♂️ Нет", callback_data="broadcast_no")
+            )
+            bot.send_message(
+                chat_id, 
+                "✅ Товар успешно добавлен в базу!\n\n**Опубликовать новинку в канал и разослать клиентам?**", 
+                parse_mode="Markdown", 
+                reply_markup=markup
+            )
+        else:
+            bot.send_message(chat_id, f"❌ Ошибка сохранения в БД: {res.text}")
+            show_main_menu(chat_id, user_id=ADMIN_ID)
+    except Exception as e:
+        bot.send_message(chat_id, f"❌ Ошибка: {e}")
         show_main_menu(chat_id, user_id=ADMIN_ID)
+        
+    clear_user_states(chat_id)
+
+# --- ОБРАБОТКА КНОПОК РАССЫЛКИ ---
+@bot.callback_query_handler(func=lambda call: call.data.startswith("broadcast_") and call.from_user.id == ADMIN_ID)
+def handle_broadcast_decision(call):
+    bot.answer_callback_query(call.id)
+    chat_id = call.message.chat.id
+    
+    if call.data == "broadcast_no":
+        bot.edit_message_text("👍 Товар добавлен только в каталог.", chat_id, call.message.message_id)
+        show_main_menu(chat_id, user_id=ADMIN_ID)
+        return
+        
+    item_id = call.data.replace("broadcast_yes_", "")
+    products = load_products()
+    item = products.get(item_id)
+    
+    if not item:
+        bot.edit_message_text("❌ Товар не найден для рассылки.", chat_id, call.message.message_id)
+        show_main_menu(chat_id, user_id=ADMIN_ID)
+        return
+        
+    # Формируем текст поста
+    post_text = (
+        f"🔥 **НОВИНКА В МАСТЕРСКОЙ!** 🔥\n\n"
+        f"📌 **{item.get('name')}**\n\n"
+        f"🧵 Материал: {item.get('material')}\n"
+        f"💵 Цена: {item.get('price')} ₽\n"
+        f"⏱ Срок изготовления: {item.get('time')}\n\n"
+        f"Заглядывай в бота, чтобы оформить заказ!"
+    )
+    
+    bot_username = bot.get_me().username
+    channel_markup = telebot.types.InlineKeyboardMarkup()
+    channel_markup.add(telebot.types.InlineKeyboardButton("🛒 Открыть каталог в боте", url=f"https://t.me/{bot_username}"))
+    
+    # 1. Публикуем в канал
+    try:
+        if item.get("photo"):
+            bot.send_photo(CHANNEL_USERNAME, item.get("photo"), caption=post_text, parse_mode="Markdown", reply_markup=channel_markup)
+        else:
+            bot.send_message(CHANNEL_USERNAME, post_text, parse_mode="Markdown", reply_markup=channel_markup)
+    except Exception as e:
+        print(f"Ошибка публикации в канал: {e}")
+        
+    # 2. Делаем рассылку по ЛС клиентов
+    all_users = get_all_users()
+    success_count = 0
+    
+    for uid in all_users:
+        if int(uid) == ADMIN_ID:
+            continue
+        try:
+            client_msg = f"🔥 **Пополнение в Храме Паука!**\n\nДоступна новинка: *{item.get('name')}* ({item.get('price')} ₽).\nЗацени в каталоге!"
+            bot.send_message(int(uid), client_msg, parse_mode="Markdown")
+            success_count += 1
+        except Exception:
+            pass
+            
+    bot.edit_message_text(f"✅ Дроп успешно улетел в канал и в лички ({success_count} клиентам)!", chat_id, call.message.message_id)
+    show_main_menu(chat_id, user_id=ADMIN_ID)
 
 # --- АДМИНКА: УДАЛЕНИЕ И РЕДАКТИРОВАНИЕ ТОВАРА ---
 @bot.callback_query_handler(func=lambda call: call.data.startswith("del_item_") and call.from_user.id == ADMIN_ID)
