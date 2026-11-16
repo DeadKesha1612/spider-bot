@@ -144,7 +144,7 @@ def back_to_menu(call):
     clear_user_states(call.message.chat.id)
     show_main_menu(call.message.chat.id, call.message.message_id, user_id=call.from_user.id)
 
-# --- АДМИНКА: ДОБАВЛЕНИЕ ТОВАРА ЧЕРЕЗ НИЖНЮЮ КНОПКУ ---
+# --- АДМИНКА: ДОБАВЛЕНИЕ ТОВАРА (ШАГИ) ---
 @bot.message_handler(func=lambda msg: msg.text == "➕ Добавить товар" and msg.from_user.id == ADMIN_ID)
 def start_add_product_msg(message):
     chat_id = message.chat.id
@@ -167,10 +167,46 @@ def admin_choose_category(call):
     admin_states[chat_id]["category"] = cat_key
     admin_states[chat_id]["step"] = "name"
     
-    bot.edit_message_text("✍️ 1/6. Введи **название** товара:", chat_id, call.message.message_id, parse_mode="Markdown")
+    bot.edit_message_text("✍️ 1/5. Введи **название** товара:", chat_id, call.message.message_id, parse_mode="Markdown")
 
+# Шаг 1: Название (текст)
+@bot.message_handler(func=lambda msg: msg.chat.id in admin_states and admin_states[msg.chat.id].get("step") == "name" and msg.from_user.id == ADMIN_ID)
+def admin_step_name(message):
+    chat_id = message.chat.id
+    if message.text.startswith("/"):
+        clear_user_states(chat_id)
+        return
+    admin_states[chat_id]["name"] = message.text.strip()
+    admin_states[chat_id]["step"] = "photo"
+    bot.send_message(chat_id, "📸 2/5. Пришли **фотографию** товара:", parse_mode="Markdown")
+
+# Шаг 2: Фото (картинка или текст «нет»)
+@bot.message_handler(content_types=['photo', 'text'], func=lambda msg: msg.chat.id in admin_states and admin_states[msg.chat.id].get("step") == "photo" and msg.from_user.id == ADMIN_ID)
+def admin_step_photo(message):
+    chat_id = message.chat.id
+    
+    if message.photo:
+        # Берем самое качественное фото из массива
+        photo_id = message.photo[-1].file_id
+        admin_states[chat_id]["photo"] = photo_id
+    elif message.text:
+        if message.text.startswith("/"):
+            clear_user_states(chat_id)
+            return
+        if message.text.strip().lower() == "нет":
+            admin_states[chat_id]["photo"] = None
+        else:
+            bot.send_message(chat_id, "❌ Пожалуйста, отправь фото картинкой (или напиши «нет»):")
+            return
+    else:
+        return
+
+    admin_states[chat_id]["step"] = "material"
+    bot.send_message(chat_id, "🧵 3/5. Введи **материал** (например: Паракорд 550):", parse_mode="Markdown")
+
+# Шаги 3, 4, 5: Материал, Цвет, Цена, Срок
 @bot.message_handler(func=lambda msg: msg.chat.id in admin_states and msg.from_user.id == ADMIN_ID)
-def process_admin_product_steps(message):
+def process_admin_product_remaining_steps(message):
     chat_id = message.chat.id
     state = admin_states.get(chat_id, {})
     step = state.get("step")
@@ -180,27 +216,19 @@ def process_admin_product_steps(message):
         clear_user_states(chat_id)
         return
 
-    if step == "name":
-        state["name"] = text
-        state["step"] = "photo"
-        bot.send_message(chat_id, "🖼 2/6. Отправь **прямую ссылку на фото** товара (или напиши `нет`, если фото не нужно):", parse_mode="Markdown")
-    elif step == "photo":
-        state["photo"] = None if text.lower() == "нет" else text
-        state["step"] = "material"
-        bot.send_message(chat_id, "🧵 3/6. Введи **материал** (например: Паракорд 550):", parse_mode="Markdown")
-    elif step == "material":
+    if step == "material":
         state["material"] = text
         state["step"] = "color"
-        bot.send_message(chat_id, "🎨 4/6. Введи **цвет** (например: Песочный / Черный):", parse_mode="Markdown")
+        bot.send_message(chat_id, "🎨 4/5. Введи **цвет** (например: Песочный / Черный):", parse_mode="Markdown")
     elif step == "color":
         state["color"] = text
         state["step"] = "price"
-        bot.send_message(chat_id, "💵 5/6. Введи **цену** товара (только цифры, например: 600):", parse_mode="Markdown")
+        bot.send_message(chat_id, "💵 5/5. Введи **цену** товара (только цифры, например: 600):", parse_mode="Markdown")
     elif step == "price":
         try:
             state["price"] = int(text)
             state["step"] = "time"
-            bot.send_message(chat_id, "⏱ 6/6. Введи **срок изготовления** (например: 1-2 дня):", parse_mode="Markdown")
+            bot.send_message(chat_id, "⏱ Введи **срок изготовления** (например: 1-2 дня):", parse_mode="Markdown")
         except ValueError:
             bot.send_message(chat_id, "❌ Цена должна быть числом. Введи цену повторно:")
     elif step == "time":
@@ -257,7 +285,7 @@ def admin_edit_item_start(call):
     markup.add(telebot.types.InlineKeyboardButton("💵 Цена", callback_data=f"edit_field_price_{item_id}"))
     markup.add(telebot.types.InlineKeyboardButton("🧵 Материал", callback_data=f"edit_field_material_{item_id}"))
     markup.add(telebot.types.InlineKeyboardButton("⏱ Срок", callback_data=f"edit_field_time_{item_id}"))
-    markup.add(telebot.types.InlineKeyboardButton("🖼 Фото (ссылка)", callback_data=f"edit_field_photo_{item_id}"))
+    markup.add(telebot.types.InlineKeyboardButton("🖼 Фото", callback_data=f"edit_field_photo_{item_id}"))
     markup.add(telebot.types.InlineKeyboardButton("🔙 Отмена", callback_data="catalog"))
     
     bot.edit_message_text("✏️ Что именно ты хочешь изменить в этом товаре?", chat_id, call.message.message_id, reply_markup=markup)
@@ -271,22 +299,32 @@ def admin_edit_field_choose(call):
     chat_id = call.message.chat.id
     
     admin_states[chat_id] = {"step": "save_edit", "item_id": item_id, "field": field}
-    bot.edit_message_text(f"✍️ Введи новое значение для поля **{field}**:", chat_id, call.message.message_id, parse_mode="Markdown")
+    if field == "photo":
+        bot.edit_message_text(f"📸 Пришли **новое фото** для этого товара:", chat_id, call.message.message_id, parse_mode="Markdown")
+    else:
+        bot.edit_message_text(f"✍️ Введи новое значение для поля **{field}**:", chat_id, call.message.message_id, parse_mode="Markdown")
 
-@bot.message_handler(func=lambda msg: msg.chat.id in admin_states and admin_states[msg.chat.id].get("step") == "save_edit" and msg.from_user.id == ADMIN_ID)
+@bot.message_handler(content_types=['photo', 'text'], func=lambda msg: msg.chat.id in admin_states and admin_states[msg.chat.id].get("step") == "save_edit" and msg.from_user.id == ADMIN_ID)
 def admin_save_edited_field(message):
     chat_id = message.chat.id
     state = admin_states[chat_id]
     item_id = state["item_id"]
     field = state["field"]
-    val = message.text.strip()
     
-    if field == "price":
-        try:
-            val = int(val)
-        except ValueError:
-            bot.send_message(chat_id, "❌ Цена должна быть числом. Попробуй еще раз ввести число:")
+    if field == "photo":
+        if message.photo:
+            val = message.photo[-1].file_id
+        else:
+            bot.send_message(chat_id, "❌ Пришли именно картинку!")
             return
+    else:
+        val = message.text.strip()
+        if field == "price":
+            try:
+                val = int(val)
+            except ValueError:
+                bot.send_message(chat_id, "❌ Цена должна быть числом. Попробуй еще раз:")
+                return
 
     try:
         url = f"{SUPABASE_URL}/rest/v1/products?id=eq.{item_id}"
