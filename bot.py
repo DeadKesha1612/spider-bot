@@ -142,7 +142,7 @@ def back_to_menu(call):
     clear_user_states(call.message.chat.id)
     show_main_menu(call.message.chat.id, call.message.message_id)
 
-# --- АДМИНКА: ДОБАВЛЕНИЕ ТОВАРА ---
+# --- АДМИНКА: ДОБАВЛЕНИЕ ТОВАРА (НОВЫЙ ПОРЯДОК ШАГОВ) ---
 @bot.callback_query_handler(func=lambda call: call.data == "admin_add_start" and call.from_user.id == ADMIN_ID)
 def start_add_product_callback(call):
     bot.answer_callback_query(call.id)
@@ -167,7 +167,7 @@ def admin_choose_category(call):
     admin_states[chat_id]["category"] = cat_key
     admin_states[chat_id]["step"] = "name"
     
-    bot.edit_message_text("✍️ Введи **название** товара:", chat_id, call.message.message_id, parse_mode="Markdown")
+    bot.edit_message_text("✍️ 1/6. Введи **название** товара:", chat_id, call.message.message_id, parse_mode="Markdown")
 
 @bot.message_handler(func=lambda msg: msg.chat.id in admin_states and msg.from_user.id == ADMIN_ID)
 def process_admin_product_steps(message):
@@ -182,26 +182,32 @@ def process_admin_product_steps(message):
 
     if step == "name":
         state["name"] = text
+        state["step"] = "photo"
+        bot.send_message(chat_id, "🖼 2/6. Отправь **прямую ссылку на фото** товара (или напиши `нет`, если фото не нужно):", parse_mode="Markdown")
+    elif step == "photo":
+        state["photo"] = None if text.lower() == "нет" else text
+        state["step"] = "material"
+        bot.send_message(chat_id, "🧵 3/6. Введи **материал** (например: Паракорд 550):", parse_mode="Markdown")
+    elif step == "material":
+        state["material"] = text
+        state["step"] = "color"
+        bot.send_message(chat_id, "🎨 4/6. Введи **цвет** (например: Песочный / Армейский зеленый):", parse_mode="Markdown")
+    elif step == "color":
+        state["color"] = text
         state["step"] = "price"
-        bot.send_message(chat_id, "💵 Введи **цену** товара (только цифры, например: 600):", parse_mode="Markdown")
+        bot.send_message(chat_id, "💵 5/6. Введи **цену** товара (только цифры, например: 600):", parse_mode="Markdown")
     elif step == "price":
         try:
             state["price"] = int(text)
-            state["step"] = "material"
-            bot.send_message(chat_id, "🧵 Введи **материал** (например: Паракорд 550, цвет черный):", parse_mode="Markdown")
+            state["step"] = "time"
+            bot.send_message(chat_id, "⏱ 6/6. Введи **срок изготовления** (например: 1-2 дня):", parse_mode="Markdown")
         except ValueError:
             bot.send_message(chat_id, "❌ Цена должна быть числом. Введи цену повторно:")
-    elif step == "material":
-        state["material"] = text
-        state["step"] = "time"
-        bot.send_message(chat_id, "⏱ Введи **срок изготовления** (например: 1-2 дня):", parse_mode="Markdown")
     elif step == "time":
         state["time"] = text
-        state["step"] = "photo"
-        bot.send_message(chat_id, "🖼 Отправь **прямую ссылку на фото** товара (или напиши `нет`, если фото не нужно):", parse_mode="Markdown")
-    elif step == "photo":
-        photo_val = None if text.lower() == "нет" else text
-        state["photo"] = photo_val
+        
+        # Объединяем материал и цвет в одно поле для сохранения в базу
+        full_material_str = f"{state['material']}, Цвет: {state['color']}"
         
         try:
             url = f"{SUPABASE_URL}/rest/v1/products"
@@ -209,7 +215,7 @@ def process_admin_product_steps(message):
                 "category": state["category"],
                 "name": state["name"],
                 "price": state["price"],
-                "material": state["material"],
+                "material": full_material_str,
                 "time": state["time"],
                 "photo": state["photo"]
             }
@@ -340,7 +346,6 @@ def view_category_item(call):
     if not cat_items:
         text = f"📁 Категория: {CATEGORIES.get(cat_key, 'Товары')}\n\nВ этой категории пока нет товаров."
         
-        # Кнопка добавления для админа даже если категория пуста
         if call.from_user.id == ADMIN_ID:
             markup.add(telebot.types.InlineKeyboardButton("➕ Добавить товар", callback_data="admin_add_start"))
             
@@ -372,7 +377,6 @@ def view_category_item(call):
     markup = telebot.types.InlineKeyboardMarkup()
     markup.add(telebot.types.InlineKeyboardButton("🛒 Добавить в корзину", callback_data=f"cart_add_{item_id}"))
     
-    # КНОПКИ УПРАВЛЕНИЯ ДЛЯ АДМИНА (Добавить — строго НАД Редактировать и Удалить)
     if call.from_user.id == ADMIN_ID:
         markup.add(telebot.types.InlineKeyboardButton("➕ Добавить товар", callback_data="admin_add_start"))
         markup.add(
