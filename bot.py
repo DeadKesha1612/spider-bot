@@ -52,12 +52,22 @@ def load_products():
 
 def get_next_order_number():
     try:
-        url = f"{SUPABASE_URL}/rest/v1/orders?select=order_id&order=order_id.desc&limit=1"
+        url = f"{SUPABASE_URL}/rest/v1/orders?select=order_id"
         response = requests.get(url, headers=HEADERS)
         if response.status_code == 200:
             rows = response.json()
-            if rows and len(rows) > 0 and rows[0].get("order_id") is not None:
-                return int(rows[0]["order_id"]) + 1
+            if rows and len(rows) > 0:
+                max_id = 0
+                for row in rows:
+                    val = row.get("order_id")
+                    if val is not None:
+                        try:
+                            num = int(val)
+                            if num > max_id:
+                                max_id = num
+                        except ValueError:
+                            pass
+                return max_id + 1
     except Exception as e:
         print(f"Ошибка получения номера заказа: {e}")
     return 1
