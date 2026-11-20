@@ -49,6 +49,34 @@ def escape_html(text):
   )
 
 
+def format_customer_html(user_info, chat_id):
+  username = getattr(user_info, "username", None)
+  bot_username = (bot.get_me().username or "").lower()
+  if username and username.lower() != bot_username:
+    return f"@{escape_html(username)}"
+  first_name = getattr(user_info, "first_name", None) or "Клиент"
+  return f'<a href="tg://user?id={chat_id}">{escape_html(first_name)}</a>'
+
+
+def format_db_user_html(row):
+  chat_id = row.get("chat_id")
+  username = row.get("username")
+  first_name = row.get("first_name") or ""
+  last_name = row.get("last_name") or ""
+  full_name = f"{first_name} {last_name}".strip() or "Без имени"
+
+  if username:
+    user_link = f"@{escape_html(username)}"
+  else:
+    user_link = f'<a href="tg://user?id={chat_id}">{escape_html(full_name)}</a>'
+
+  name_part = f" ({escape_html(full_name)})" if username else ""
+  seen = row.get("last_seen") or ""
+  seen_short = str(seen)[:16].replace("T", " ") if seen else ""
+  seen_part = f" — <i>{escape_html(seen_short)}</i>" if seen_short else ""
+  return f"{user_link}{name_part} [<code>{chat_id}</code>]{seen_part}"
+
+
 def load_products():
   try:
     url = f"{SUPABASE_URL}/rest/v1/products?select=*"
@@ -73,26 +101,56 @@ def load_products():
   return {}
 
 
-def save_user_to_db(chat_id):
+def upsert_user_to_db(user_obj, chat_id):
+  if not user_obj:
+    return
+  user_id = getattr(user_obj, "id", chat_id)
+  username = getattr(user_obj, "username", None)
+  first_name = getattr(user_obj, "first_name", None)
+  last_name = getattr(user_obj, "last_name", None)
+
   try:
-    url = f"{SUPABASE_URL}/rest/v1/users"
-    check_res = requests.get(
-        f"{url}?chat_id=eq.{chat_id}", headers=HEADERS, timeout=10
-    )
-    if check_res.status_code == 200 and not check_res.json():
-      requests.post(url, headers=HEADERS, json={"chat_id": chat_id}, timeout=10)
+    check_url = f"{SUPABASE_URL}/rest/v1/users?chat_id=eq.{chat_id}"
+    check_res = requests.get(check_url, headers=HEADERS, timeout=10)
+    is_new = check_res.status_code == 200 and not check_res.json()
+
+    payload = {
+        "chat_id": chat_id,
+        "username": username,
+        "first_name": first_name,
+        "last_name": last_name,
+        "last_seen": "now()",
+    }
+
+    if is_new:
+      requests.post(
+          f"{SUPABASE_URL}/rest/v1/users",
+          headers=HEADERS,
+          json=payload,
+          timeout=10,
+      )
+      if int(user_id) != ADMIN_ID:
+        who = format_customer_html(user_obj, chat_id)
+        try:
+          bot.send_message(
+              ADMIN_ID,
+              f"👤 <b>Новый вход в бота:</b> {who} (<code>{chat_id}</code>)",
+              parse_mode="HTML",
+          )
+        except Exception as e:
+          print(f"Ошибка уведомления о новом пользователе: {e}")
+    else:
+      requests.patch(check_url, headers=HEADERS, json=payload, timeout=10)
   except Exception as e:
     print(f"Ошибка сохранения пользователя: {e}")
 
 
 def get_all_users():
   try:
-    url = f"{SUPABASE_URL}/rest/v1/users?select=chat_id"
+    url = f"{SUPABASE_URL}/rest/v1/users?select=*"
     response = requests.get(url, headers=HEADERS, timeout=10)
     if response.status_code == 200:
-      return [
-          row.get("chat_id") for row in response.json() if row.get("chat_id")
-      ]
+      return response.json()
   except Exception as e:
     print(f"Ошибка получения пользователей: {e}")
   return []
@@ -159,16 +217,8 @@ def get_reply_markup(user_id):
   markup.add(telebot.types.KeyboardButton("🕷 Запустить Храм Паука"))
   if user_id == ADMIN_ID:
     markup.add(telebot.types.KeyboardButton("➕ Добавить товар"))
+    markup.add(telebot.types.KeyboardButton("👥 Пользователи"))
   return markup
-
-
-def format_customer_html(user_info, chat_id):
-  username = getattr(user_info, "username", None)
-  bot_username = (bot.get_me().username or "").lower()
-  if username and username.lower() != bot_username:
-    return f"@{escape_html(username)}"
-  first_name = getattr(user_info, "first_name", None) or "Клиент"
-  return f'<a href="tg://user?id={chat_id}">{escape_html(first_name)}</a>'
 
 
 def send_order_to_admin(order_id, chat_id, user_info, cart, total):
@@ -209,7 +259,7 @@ def send_welcome(message):
   chat_id = message.chat.id
   user_carts[chat_id] = []
   clear_user_states(chat_id)
-  save_user_to_db(chat_id)
+  upsert_user_to_db(message.from_user, chat_id)
   show_main_menu(chat_id, user_id=message.from_user.id)
 
 
@@ -218,8 +268,40 @@ def handle_reply_start(message):
   chat_id = message.chat.id
   user_carts[chat_id] = []
   clear_user_states(chat_id)
-  save_user_to_db(chat_id)
+  upsert_user_to_db(message.from_user, chat_id)
   show_main_menu(chat_id, user_id=message.from_user.id)
+
+
+@bot.message_handler(
+    func=lambda msg: msg.text == "👥 Пользователи"
+    and msg.from_user.id == ADMIN_ID
+)
+def handle_admin_users(message):
+  chat_id = message.chat.id
+  rows = get_all_users()
+  if not rows:
+    bot.send_message(chat_id, "Пользователей в базе пока нет.")
+    return
+
+  rows_sorted = sorted(
+      rows,
+      key=lambda r: str(r.get("last_seen") or ""),
+      reverse=True,
+  )
+  recent = rows_sorted[:30]
+  lines = [
+      f"👥 <b>Пользователей в базе:</b> {len(rows)} (показаны последние"
+      f" {len(recent)})\n"
+  ]
+  for idx, row in enumerate(recent, 1):
+    lines.append(f"{idx}. {format_db_user_html(row)}")
+
+  bot.send_message(
+      chat_id,
+      "\n".join(lines),
+      parse_mode="HTML",
+      disable_web_page_preview=True,
+  )
 
 
 def show_main_menu(chat_id, message_id=None, user_id=None):
@@ -368,7 +450,7 @@ def admin_step_material(message):
   admin_states[chat_id]["step"] = "color"
   bot.send_message(
       chat_id,
-      "🎨 Введи **цвет** (например: Каменный серый):",
+      "🎨 Введи **цвет** (например: Тёмно-серый мрамор):",
       parse_mode="Markdown",
   )
 
@@ -575,8 +657,9 @@ def handle_broadcast_decision(call):
   all_users = get_all_users()
   success_count = 0
 
-  for uid in all_users:
-    if int(uid) == ADMIN_ID:
+  for row in all_users:
+    uid = row.get("chat_id") if isinstance(row, dict) else row
+    if not uid or int(uid) == ADMIN_ID:
       continue
     try:
       client_msg = (
